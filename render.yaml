@@ -1,0 +1,39 @@
+# Render blueprint for the Master GYM API.
+#
+# Create the service with New > Blueprint and point Render at this repository. Values marked
+# "sync: false" are deliberately not in git: Render asks for them once in the dashboard.
+services:
+  - type: web
+    name: master-gym-api
+    runtime: python
+    plan: free
+    # Neon runs in ap-southeast-1, so keeping the API in Singapore avoids a round trip
+    # across the world on every query.
+    region: singapore
+    rootDir: backend
+    buildCommand: pip install --upgrade pip && pip install .
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.14.3
+      - key: ENVIRONMENT
+        value: production
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash-lite
+      - key: DISPLAY_TIMEZONE
+        value: Asia/Kolkata
+      # Render generates this once and keeps it. A new value logs everyone out, which is
+      # exactly what you want if the secret ever leaks.
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      # The Cloudflare Pages URL. Comma-separated if you need more than one.
+      - key: FRONTEND_ORIGIN
+        sync: false

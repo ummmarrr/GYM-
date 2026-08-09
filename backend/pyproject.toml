@@ -1,0 +1,61 @@
+[project]
+name = "master-gym-backend"
+version = "0.2.0"
+description = "Master GYM backend API and the FitBot coaching assistant."
+requires-python = ">=3.11"
+dependencies = [
+    "email-validator>=2.2.0",
+    "fastapi>=0.115.0",
+    "google-genai>=1.0.0",
+    # Groq speaks the OpenAI wire format, so the fallback provider is a plain JSON POST.
+    "httpx>=0.28.0",
+    "langgraph>=0.2.0",
+    # Vector column and distance operators, so embeddings live in Postgres.
+    "pgvector>=0.3.6",
+    # Postgres driver for the hosted database. SQLite needs nothing extra.
+    "psycopg[binary]>=3.2",
+    "pwdlib[argon2]>=0.2.0",
+    "pydantic-settings>=2.6.0",
+    "PyJWT[crypto]>=2.10.0",
+    "PyMuPDF>=1.25.0",
+    "python-multipart>=0.0.20",
+    "sqlalchemy>=2.0.0",
+    "uvicorn[standard]>=0.32.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "requests>=2.32.0",
+    "ruff>=0.8.0",
+]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# Correctness, imports and modernisation. Timezone-aware datetimes are deliberately not
+# enforced: membership dates are local calendar dates, which is what a gym actually bills on.
+select = ["E", "W", "F", "I", "B", "UP", "C4"]
+# Role/Discipline subclass str so SQLAlchemy and Pydantic keep treating them as strings;
+# switching to StrEnum would touch the storage layer for no behavioural gain.
+ignore = ["UP042"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
+# conftest has to set DATABASE_URL and the API keys before importing the app, because settings
+# are read once at import time. The imports below that are therefore deliberate.
+"tests/conftest.py" = ["E402", "E501"]

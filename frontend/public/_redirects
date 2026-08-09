@@ -1,0 +1,3 @@
+# React Router owns the routing, so every path has to be served the same HTML shell.
+# Without this, opening /login directly or refreshing the page returns a 404 from Pages.
+/*  /index.html  200

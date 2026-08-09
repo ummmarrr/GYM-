@@ -1,0 +1,90 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink-950: #08090c;
+  --color-ink-900: #0d0f14;
+  --color-ink-850: #12151c;
+  --color-ink-800: #171b24;
+  --color-ink-700: #232936;
+  --color-ink-600: #333b4d;
+  --color-volt-400: #c6f24e;
+  --color-volt-500: #b0e02e;
+  --color-volt-600: #8ab81c;
+  --font-display: "Bebas Neue", "Impact", system-ui, sans-serif;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-ink-950 text-slate-200 antialiased;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  ::selection {
+    @apply bg-volt-400 text-ink-950;
+  }
+
+  /* A slim scrollbar keeps the dark chrome from being broken up by a bright track. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-ink-900;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-ink-700 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-ink-600;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-ink-700/70 bg-ink-850/80 backdrop-blur;
+  }
+
+  .input {
+    @apply w-full rounded-xl border border-ink-700 bg-ink-900 px-4 py-2.5 text-sm text-slate-100
+           placeholder:text-slate-500 outline-none transition
+           focus:border-volt-500/60 focus:ring-2 focus:ring-volt-500/20;
+  }
+
+  .label {
+    @apply mb-1.5 block text-xs font-medium uppercase tracking-wider text-slate-400;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-rise {
+  animation: rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.animate-pop {
+  animation: pop 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
