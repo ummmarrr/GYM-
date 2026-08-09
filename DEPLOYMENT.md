@@ -5,6 +5,18 @@ change was needed, and the exact steps to follow in the Render and Cloudflare da
 
 Everything here stays on free tiers.
 
+## Live addresses
+
+| Piece | Address |
+| --- | --- |
+| Repository | https://github.com/ummmarrr/GYM- |
+| API | https://master-gym-api.onrender.com |
+| Health check | https://master-gym-api.onrender.com/api/health |
+| Site | https://master-gym.pages.dev |
+
+The Render service is named `master-gym-api`, runs in Singapore on the free plan, and is
+managed by the `master-gym` blueprint, so editing `render.yaml` and pushing updates it.
+
 ---
 
 ## 1. The shape of the deployment
