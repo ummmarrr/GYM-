@@ -9,12 +9,18 @@ from sqlalchemy.orm import Session
 
 from app.agents.workflow import classify_front_desk, workflow
 from app.api.deps import get_current_user, get_optional_user
+from app.core.config import get_settings
+from app.core.rate_limit import rate_limit
 from app.db import ChatMessage, Conversation, FitnessProfile, Role, User, get_db
 from app.schemas import ChatRequest, ChatResponse, SourceCitation
 from app.services import front_desk
 from app.services.entitlements import entitlements_for
 
 router = APIRouter(prefix="/fitbot", tags=["fitbot"])
+
+settings = get_settings()
+# Anyone can reach this endpoint and each call spends LLM quota, so it is capped per caller.
+chat_limit = rate_limit("chat", settings.chat_rate_limit, settings.chat_rate_window_seconds)
 
 # Whatever is sent here is resent to the model on every turn. Four turns is enough to follow a
 # thread, and clipping each one stops a single long coaching reply from dominating the prompt.
@@ -94,7 +100,7 @@ def _history(db: Session, conversation_id: str) -> str:
     )
 
 
-@router.post("/chat", response_model=ChatResponse)
+@router.post("/chat", response_model=ChatResponse, dependencies=[Depends(chat_limit)])
 def chat(
     payload: ChatRequest,
     db: Annotated[Session, Depends(get_db)],

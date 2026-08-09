@@ -72,7 +72,22 @@ serves the app shell for any unmatched path:
 
 Vite copies `public/` into `dist/`, so this ships automatically with every build.
 
-### 2.4 A Render blueprint
+### 2.4 Per-caller rate limits
+
+FitBot answers signed-out visitors, and every message costs an embedding call and an LLM call.
+On a public URL, one loop could drain both providers' free quotas and fill the database with
+conversation rows, so `backend/app/core/rate_limit.py` caps the endpoints anyone can reach:
+20 chat messages and 10 login attempts per five minutes, and 5 signups an hour, each counted
+per caller. Over the limit returns 429 with a `Retry-After` header.
+
+The counter is held in the process, which suits a single free Render instance. Running more
+than one instance would need a shared store such as Redis, because each process would
+otherwise grant the full allowance on its own.
+
+Behind Render's proxy the socket address belongs to the proxy, so the caller is taken from the
+first entry of `X-Forwarded-For`.
+
+### 2.5 A Render blueprint
 
 `render.yaml` at the repository root describes the backend service, so Render configures itself
 instead of you filling in a form. It pins Python 3.14.3, sets `rootDir` to `backend`, runs the

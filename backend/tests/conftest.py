@@ -19,9 +19,18 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.core.rate_limit import reset_rate_limits
 from app.core.security import hash_password
 from app.db import Base, Role, User, get_db
 from app.main import app
+
+
+@pytest.fixture(autouse=True)
+def fresh_rate_limits():
+    """Every test starts with a full allowance; the limiter is process-wide otherwise."""
+    reset_rate_limits()
+    yield
+    reset_rate_limits()
 
 
 @pytest.fixture

@@ -46,6 +46,17 @@ class Settings(BaseSettings):
     # Class times are stored naive UTC. FitBot quotes them as text, so it needs the gym's
     # wall clock; the web UI does this conversion in the browser instead.
     display_timezone: str = "Asia/Kolkata"
+    # FitBot is open to signed-out visitors and every message costs an embedding call and an
+    # LLM call, so the public endpoints are capped per caller. Generous for a person, useless
+    # for a script.
+    rate_limit_enabled: bool = True
+    chat_rate_limit: int = 20
+    chat_rate_window_seconds: int = 300
+    login_rate_limit: int = 10
+    login_rate_window_seconds: int = 300
+    register_rate_limit: int = 5
+    register_rate_window_seconds: int = 3600
+
     max_upload_mb: int = 15
     # Comma-separated, because once deployed the browser talks to the API from the live site
     # and from localhost during development, and both origins have to be allowed.
