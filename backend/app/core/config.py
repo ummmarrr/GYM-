@@ -62,6 +62,12 @@ class Settings(BaseSettings):
     # and from localhost during development, and both origins have to be allowed.
     frontend_origin: str = "http://localhost:5173"
 
+    # The sign-in page publishes these logins so a visitor can look around. Anyone on the
+    # internet holds their passwords, so the API refuses writes from them.
+    demo_account_emails: str = (
+        "admin-demo@example.com,trainer-demo@example.com,member-demo@example.com"
+    )
+
     model_config = SettingsConfigDict(
         env_file=BACKEND_DIR / ".env", env_file_encoding="utf-8", extra="ignore"
     )
@@ -69,6 +75,11 @@ class Settings(BaseSettings):
     @property
     def allowed_origins(self) -> list[str]:
         return [origin.strip() for origin in self.frontend_origin.split(",") if origin.strip()]
+
+    @property
+    def demo_emails(self) -> set[str]:
+        entries = self.demo_account_emails.split(",")
+        return {email.strip().lower() for email in entries if email.strip()}
 
     @field_validator("database_url")
     @classmethod

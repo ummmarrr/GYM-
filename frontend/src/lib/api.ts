@@ -180,18 +180,65 @@ function readDetail(body: unknown, fallback: string): string {
 // site and the API sit on different domains, so the deployed build is given an absolute URL.
 const API_BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
 
+// The API sleeps after fifteen idle minutes on Render's free plan and takes the best part of
+// a minute to come back. Without a word of explanation the first visit of the day just looks
+// broken, so anything still waiting after this long announces itself.
+const COLD_START_MS = 3000;
+
+let slowRequests = 0;
+let serverHasReplied = false;
+const coldStartListeners = new Set<(waking: boolean) => void>();
+
+export function onColdStart(listener: (waking: boolean) => void): () => void {
+  coldStartListeners.add(listener);
+  return () => {
+    coldStartListeners.delete(listener);
+  };
+}
+
+function announceColdStart() {
+  const waking = slowRequests > 0;
+  coldStartListeners.forEach((listener) => listener(waking));
+}
+
+/** Returns the function that stops watching this request. */
+function watchColdStart(): () => void {
+  if (serverHasReplied) return () => {};
+  let counted = false;
+  const timer = setTimeout(() => {
+    counted = true;
+    slowRequests += 1;
+    announceColdStart();
+  }, COLD_START_MS);
+
+  return () => {
+    clearTimeout(timer);
+    if (!counted) return;
+    slowRequests -= 1;
+    announceColdStart();
+  };
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = tokenStore.get();
   const isFormData = init.body instanceof FormData;
+  const stopWatching = watchColdStart();
 
-  const response = await fetch(`${API_BASE}/api${path}`, {
-    ...init,
-    headers: {
-      ...(isFormData ? {} : { "Content-Type": "application/json" }),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...init.headers,
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}/api${path}`, {
+      ...init,
+      headers: {
+        ...(isFormData ? {} : { "Content-Type": "application/json" }),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...init.headers,
+      },
+    });
+    // Any reply, including an error, means the machine is up and later calls are fast.
+    serverHasReplied = true;
+  } finally {
+    stopWatching();
+  }
 
   if (response.status === 204) return undefined as T;
 

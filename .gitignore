@@ -18,6 +18,7 @@ node_modules/
 dist/
 .vite/
 npm-debug.log*
+*.tsbuildinfo
 
 # Playwright
 test-results/

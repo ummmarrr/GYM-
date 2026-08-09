@@ -5,6 +5,7 @@ import { Dumbbell, LogOut, Menu, X } from "lucide-react";
 import { homeFor, useAuth } from "../context/AuthContext";
 import { initials } from "../lib/format";
 import { Button, ButtonLink } from "./ui";
+import ColdStartBanner from "./ColdStartBanner";
 import FitBotWidget from "./FitBotWidget";
 
 function Brand() {
@@ -140,6 +141,8 @@ export default function Layout() {
           </div>
         )}
       </header>
+
+      <ColdStartBanner />
 
       <main className="flex-1">
         <Outlet />

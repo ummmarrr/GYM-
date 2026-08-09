@@ -248,9 +248,11 @@ If step 1 fails but the API health check passes, it is almost always `FRONTEND_O
 ## 9. Things worth knowing about the free tiers
 
 **Render sleeps.** After 15 minutes without a request the free instance spins down. The next
-visitor waits roughly 50 seconds while it wakes. Nothing is lost, it is just slow. If you are
-demoing the site to someone, load it a minute beforehand. Free instance hours are capped at 750
-a month, which one service cannot exceed.
+visitor waits roughly 50 seconds while it wakes. Nothing is lost, it is just slow. Any request
+still unanswered after three seconds raises a "waking the demo server" notice in the browser so
+the wait reads as expected rather than broken (`ColdStartBanner`, fed by `onColdStart` in
+`lib/api.ts`). If you are demoing the site to someone, load it a minute beforehand. Free
+instance hours are capped at 750 a month, which one service cannot exceed.
 
 **Neon gives you 0.5 GB.** Ample here. Rows are tiny; the only thing that grows meaningfully is
 `knowledge_chunks`, where each PDF page costs a few kilobytes of text plus a 768-dimension
@@ -288,6 +290,19 @@ to Alembic migrations instead.
 
 **Rolling back** is one click in Render (Deploys > pick an earlier one > Redeploy) and one click
 in Cloudflare (Deployments > pick > Rollback).
+
+**The visitor logins** on the sign-in page are `member-demo@`, `trainer-demo@` and
+`admin-demo@example.com`. Recreate them at any time with:
+
+```powershell
+cd backend
+..\.venv\Scripts\python.exe -m scripts.seed --public-demo
+```
+
+Because their passwords are public, `get_current_user` refuses every write from those three
+addresses — the list is `demo_account_emails` in `app/core/config.py`, overridable with the
+`DEMO_ACCOUNT_EMAILS` environment variable. Asking the data agent and booking a class stay
+open, since neither survives the visit in a way another visitor would notice.
 
 ---
 

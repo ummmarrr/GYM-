@@ -69,6 +69,19 @@ Create your admin account and some demo data:
 python -m scripts.seed --admin-email you@example.com --admin-password "your-password" --demo
 ```
 
+The hosted site also offers three shared logins so a visitor can look around without signing
+up. Create them with `python -m scripts.seed --public-demo`:
+
+| Role | Email | Password |
+| --- | --- | --- |
+| Member | member-demo@example.com | DemoMember123 |
+| Trainer | trainer-demo@example.com | DemoTrainer123 |
+| Admin | admin-demo@example.com | DemoAdmin123 |
+
+Their passwords are printed on the sign-in page, so the API rejects any write from those
+addresses; the list lives in `demo_account_emails` in `app/core/config.py`. Asking the data
+agent and booking a class are the two exceptions, since neither outlasts the visit.
+
 Run the API:
 
 ```bash

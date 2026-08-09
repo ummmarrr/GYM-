@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_admin, require_staff
+from app.api.deps import get_current_user, is_demo_account, require_admin, require_staff
+from app.core.config import get_settings
 from app.core.security import hash_password
 from app.db import (
     AuditEvent,
@@ -61,6 +62,12 @@ def _profile_for(db: Session, user_id: str) -> FitnessProfile:
 # --- Admin ----------------------------------------------------------------
 
 
+def _redacted(person: PersonSummary) -> PersonSummary:
+    """The account list is the one screen where the public demo admin can see real people."""
+    name, _, domain = person.email.partition("@")
+    return person.model_copy(update={"email": f"{name[:1]}****@{domain}", "phone": None})
+
+
 @router.get("/admin/people", response_model=list[PersonSummary])
 def list_people(
     current_user: Annotated[User, Depends(require_admin)],
@@ -70,7 +77,14 @@ def list_people(
     statement = select(User).order_by(User.created_at.desc())
     if role:
         statement = statement.where(User.role == Role(role))
-    return [_summary(db, user) for user in db.scalars(statement).all()]
+    people = [_summary(db, user) for user in db.scalars(statement).all()]
+    if is_demo_account(current_user):
+        demo_emails = get_settings().demo_emails
+        people = [
+            person if person.email.lower() in demo_emails else _redacted(person)
+            for person in people
+        ]
+    return people
 
 
 @router.post("/admin/people", response_model=PersonSummary, status_code=201)

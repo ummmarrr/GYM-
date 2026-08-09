@@ -6,6 +6,14 @@ import { homeFor, useAuth } from "../context/AuthContext";
 import { ApiError } from "../lib/api";
 import { Alert, Button, Field } from "../components/ui";
 
+// Public tour logins. The API refuses writes from these addresses, so a visitor can open
+// every dashboard without being able to change anything for the next visitor.
+const DEMO_LOGINS = [
+  { role: "Member", email: "member-demo@example.com", password: "DemoMember123" },
+  { role: "Trainer", email: "trainer-demo@example.com", password: "DemoTrainer123" },
+  { role: "Admin", email: "admin-demo@example.com", password: "DemoAdmin123" },
+];
+
 export default function Login() {
   const { signIn } = useAuth();
   const navigate = useNavigate();
@@ -16,12 +24,11 @@ export default function Login() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const attempt = async (withEmail: string, withPassword: string) => {
     setBusy(true);
     setError("");
     try {
-      const user = await signIn(email, password);
+      const user = await signIn(withEmail, withPassword);
       const from = (location.state as { from?: string } | null)?.from;
       navigate(from ?? homeFor(user.role), { replace: true });
     } catch (caught) {
@@ -29,6 +36,17 @@ export default function Login() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    void attempt(email, password);
+  };
+
+  const useDemo = (demo: (typeof DEMO_LOGINS)[number]) => {
+    setEmail(demo.email);
+    setPassword(demo.password);
+    void attempt(demo.email, demo.password);
   };
 
   return (
@@ -79,6 +97,35 @@ export default function Login() {
             Create an account
           </Link>
         </p>
+
+        <div className="mt-7 rounded-xl border border-ink-700 bg-ink-900/60 p-4">
+          <p className="text-sm font-semibold text-white">Just looking around?</p>
+          <p className="mt-1 text-xs text-slate-400">
+            Pick a role to sign in instantly. These shared logins can read everything and change
+            nothing.
+          </p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+            {DEMO_LOGINS.map((demo) => (
+              <Button
+                key={demo.role}
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={() => useDemo(demo)}
+              >
+                {demo.role}
+              </Button>
+            ))}
+          </div>
+          <dl className="mt-3 space-y-1 text-[11px] text-slate-500">
+            {DEMO_LOGINS.map((demo) => (
+              <div key={demo.email} className="flex justify-between gap-2">
+                <dt>{demo.email}</dt>
+                <dd className="font-mono">{demo.password}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
       </div>
 
       <p className="mt-5 text-center text-xs text-slate-500">

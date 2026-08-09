@@ -1,14 +1,22 @@
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import InvalidTokenError
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.security import decode_access_token
 from app.db import Role, User, get_db
 
 bearer_scheme = HTTPBearer(auto_error=False)
+
+WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+# Everything else a demo account posts would outlive the visit: deleted members, edited
+# packages, removed documents. These two change nothing a later visitor would notice, and
+# they are the whole point of the tour, so they stay open.
+DEMO_WRITE_PATHS = ("/api/admin/analyst/ask",)
+DEMO_WRITE_SUFFIXES = ("/book",)
 
 
 def _user_from_credentials(
@@ -24,7 +32,30 @@ def _user_from_credentials(
     return user if user is not None and user.active else None
 
 
+def is_demo_account(user: User) -> bool:
+    """True for the shared logins advertised on the sign-in page."""
+    return user.email.lower() in get_settings().demo_emails
+
+
+def _guard_demo_account(user: User, request: Request) -> None:
+    if request.method not in WRITE_METHODS:
+        return
+    if not is_demo_account(user):
+        return
+    path = request.url.path
+    if path in DEMO_WRITE_PATHS or path.endswith(DEMO_WRITE_SUFFIXES):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=(
+            "This is a shared demo login, so it can look at everything but change nothing. "
+            "Create your own account to try this."
+        ),
+    )
+
+
 def get_current_user(
+    request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
     db: Annotated[Session, Depends(get_db)],
 ) -> User:
@@ -34,6 +65,7 @@ def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Please sign in to continue.",
         )
+    _guard_demo_account(user, request)
     return user
 
 
