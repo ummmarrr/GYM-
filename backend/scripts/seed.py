@@ -16,6 +16,7 @@ from app.db import (
     FitnessProfile,
     Membership,
     MembershipPlan,
+    Programme,
     Role,
     SessionLocal,
     User,
@@ -85,6 +86,25 @@ def seed_public_demo(db) -> None:
     member = upsert_user(db, "member-demo@example.com", "Demo Member", "DemoMember123", Role.MEMBER)
     attach_profile(db, member, trainer)
     give_membership(db, member)
+
+    # An empty member dashboard is a poor first impression, and the demo trainer cannot
+    # write one because the account is read-only.
+    if not db.query(Programme).filter(Programme.member_id == member.id).first():
+        db.add(
+            Programme(
+                member_id=member.id,
+                trainer_id=trainer.id,
+                kind="workout",
+                title="Week 1 — full body, three days",
+                content=(
+                    "Mon: goblet squat 3x8, push-up 3x10, seated row 3x12, plank 3x30s\n"
+                    "Wed: 20 min brisk incline walk, hip hinge drill 3x10, dead bug 3x10\n"
+                    "Fri: dumbbell bench 3x8, lat pulldown 3x10, split squat 3x8 each side\n"
+                    "Rest two minutes between sets. Add weight only once every rep is clean."
+                ),
+            )
+        )
+        print(f"  wrote a starter programme for {member.email}")
 
 
 def seed_demo(db) -> None:
