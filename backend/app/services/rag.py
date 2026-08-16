@@ -73,26 +73,34 @@ class KnowledgeBase:
             return IngestResult(document_hash, 0, already_present=True)
 
         document = pymupdf.open(path)
-        passages: list[tuple[str, int]] = []
+        passages: list[tuple[str, str, int]] = []
         for page_number, page in enumerate(document, start=1):
-            for chunk in self.chunk_text(page.get_text()):
-                if len(chunk) >= MIN_CHUNK_CHARS:
-                    passages.append((chunk, page_number))
+            page_text = page.get_text()
+            # Parent chunks (size 1800, overlap 360)
+            parents = self.chunk_text(page_text, chunk_size=1800, overlap=360)
+            for parent in parents:
+                # Child chunks (size 600, overlap 120)
+                children = self.chunk_text(parent, chunk_size=600, overlap=120)
+                for child in children:
+                    if len(child) >= MIN_CHUNK_CHARS:
+                        passages.append((child, parent, page_number))
 
         if not passages:
             return IngestResult(document_hash, 0, already_present=False)
 
-        vectors = self.embedder.embed_documents([text for text, _ in passages])
+        is_sqlite = (self.db.bind.dialect.name == "sqlite")
+        vectors = self.embedder.embed_documents([child for child, _, _ in passages])
         self.db.add_all(
             KnowledgeChunk(
                 document_hash=document_hash,
                 source=path.name,
                 page=page_number,
                 discipline=discipline,
-                content=text,
-                embedding=vector,
+                content=child,
+                parent_content=parent,
+                embedding=str(vector) if is_sqlite else vector,
             )
-            for (text, page_number), vector in zip(passages, vectors, strict=True)
+            for (child, parent, page_number), vector in zip(passages, vectors, strict=True)
         )
         self.db.flush()
         return IngestResult(document_hash, len(passages), already_present=False)
@@ -127,12 +135,58 @@ class KnowledgeBase:
             logger.warning("Answering without documents because the query could not be embedded")
             return []
 
-        rows = self.db.scalars(
-            select(KnowledgeChunk)
-            .where(KnowledgeChunk.discipline.in_(allowed))
-            .order_by(KnowledgeChunk.embedding.cosine_distance(embedded))
-            .limit(limit)
-        ).all()
+        is_postgres = (self.db.bind.dialect.name == "postgresql")
+        if is_postgres:
+            ts_query = func.plainto_tsquery("english", query)
+            ts_vector = func.to_tsvector("english", KnowledgeChunk.content)
+            ts_rank = func.ts_rank_cd(ts_vector, ts_query)
+            
+            # cosine_distance is 0 to 2, smaller is closer.
+            # ts_rank is 0 to 1, larger is closer.
+            # combined_score = 0.7 * cosine_distance - 0.3 * ts_rank.
+            # Since we want to order by combined_score ascending:
+            # smaller score is better (smaller cosine_distance, larger ts_rank).
+            combined_score = 0.7 * KnowledgeChunk.embedding.cosine_distance(embedded) - 0.3 * ts_rank
+            
+            rows = self.db.scalars(
+                select(KnowledgeChunk)
+                .where(KnowledgeChunk.discipline.in_(allowed))
+                .order_by(combined_score)
+                .limit(limit)
+            ).all()
+        else:
+            # SQLite / Fallback
+            rows = self.db.scalars(
+                select(KnowledgeChunk)
+                .where(KnowledgeChunk.discipline.in_(allowed))
+            ).all()
+
+            # Python keyword and cosine distance fallback for SQLite re-ranking
+            query_words = set(query.lower().split())
+            
+            def get_hybrid_score(row):
+                try:
+                    emb = row.embedding
+                    if isinstance(emb, str):
+                        emb = [float(x) for x in emb.strip('[]').split(',') if x.strip()]
+                    
+                    if emb and isinstance(emb, list) and isinstance(embedded, list):
+                        cos_sim = sum(a * b for a, b in zip(emb, embedded))
+                        cos_dist = 1.0 - cos_sim
+                    else:
+                        cos_dist = 1.0
+                except Exception:
+                    cos_dist = 1.0
+                
+                overlap = 0.0
+                if query_words:
+                    content_words = set(row.content.lower().split())
+                    overlap = len(query_words & content_words) / len(query_words)
+                
+                return 0.7 * cos_dist - 0.3 * overlap
+
+            rows = sorted(rows, key=get_hybrid_score)[:limit]
+
         return [
-            RetrievedChunk(text=row.content, source=row.source, page=row.page) for row in rows
+            RetrievedChunk(text=row.parent_content or row.content, source=row.source, page=row.page) for row in rows
         ]

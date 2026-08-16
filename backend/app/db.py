@@ -204,6 +204,7 @@ class KnowledgeChunk(Base):
     page: Mapped[int | None] = mapped_column()
     discipline: Mapped[str] = mapped_column(String(50), index=True)
     content: Mapped[str] = mapped_column(Text)
+    parent_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     # SQLite has no vector type. The tests run there and stub retrieval out; search itself
     # requires Postgres.
     embedding: Mapped[list[float]] = mapped_column(

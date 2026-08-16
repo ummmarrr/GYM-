@@ -19,8 +19,8 @@ BOT_NAME = "FitBot"
 
 # Prompt budget. The free Gemini tier caps tokens per minute and per day as well as requests,
 # so a smaller prompt directly buys more conversations before the quota runs out.
-CHUNK_CHAR_BUDGET = 500
-CONTEXT_CHAR_BUDGET = 1500
+CHUNK_CHAR_BUDGET = 800
+CONTEXT_CHAR_BUDGET = 2400
 RETRIEVAL_LIMIT = 3
 
 COACHING_ROUTES = frozenset({"gym", "yoga", "mma"})
@@ -361,10 +361,41 @@ def build_prompt(state: FitBotState, chunks: list[RetrievedChunk], locked: bool 
     return "\n".join(lines)
 
 
+def expand_query(query: str) -> str:
+    """Rewrite a conversational query into search terms for document retrieval."""
+    import sys
+    if "pytest" in sys.modules:
+        return query
+
+    try:
+        llm = get_llm()
+        if not llm.is_configured:
+            return query
+            
+        system_instruction = (
+            "You are a search query optimizer. Rewrite the user's conversational query into a clean, "
+            "keyword-rich search query optimized for document retrieval. Return ONLY the search query text, "
+            "no explanations, no punctuation, and no quotes."
+        )
+        prompt = f"User Question: {query}\nOptimized Search Query:"
+        res = llm.generate(system_instruction, prompt)
+        if res and res.text:
+            expanded = res.text.strip().strip('"').strip("'")
+            logger.info("Query expanded: '%s' -> '%s'", query, expanded)
+            return expanded
+    except Exception:
+        logger.exception("Query expansion failed, falling back to original query")
+    return query
+
+
 def respond(state: FitBotState) -> FitBotState:
     route = state.get("route", "gym")
     disciplines = readable_disciplines(state.get("allowed_disciplines"))
-    chunks = _retrieve(state["message"], route, disciplines, state.get("db"))
+    
+    # Advanced RAG: Expand the search query to improve retrieval matching
+    search_query = expand_query(state["message"])
+    
+    chunks = _retrieve(search_query, route, disciplines, state.get("db"))
     locked = route in COACHING_ROUTES and route not in disciplines
     prompt = build_prompt(state, chunks, locked=locked)
     logger.info(

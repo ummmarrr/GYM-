@@ -173,3 +173,100 @@ def test_a_complete_member_is_not_told_anything_is_locked(
         LLMChain.generate = original
 
     assert "does not include" not in captured["prompt"]
+
+
+def test_parent_child_chunking_ingestion(db_session, tmp_path):
+    from app.services.rag import KnowledgeBase
+    from app.db import KnowledgeChunk
+
+    # Stub embed_documents to avoid calling Gemini API
+    from app.services.embeddings import GeminiEmbedder
+    orig_embed = GeminiEmbedder.embed_documents
+    GeminiEmbedder.embed_documents = lambda self, texts: [[0.1] * 768 for _ in texts]
+    
+    class MockPage:
+        def __init__(self, text):
+            self._text = text
+        def get_text(self):
+            return self._text
+            
+    # Page text long enough to have multiple chunks (e.g. 3000 chars)
+    page_text = " ".join([f"Word{i}" for i in range(500)])
+    
+    class MockDoc:
+        def __init__(self, text):
+            self.pages = [MockPage(text)]
+        def __iter__(self):
+            return iter(self.pages)
+            
+    import pymupdf
+    orig_open = pymupdf.open
+    pymupdf.open = lambda path: MockDoc(page_text)
+    
+    try:
+        kb = KnowledgeBase(db_session)
+        # Create a dummy file
+        dummy_file = tmp_path / "dummy.pdf"
+        dummy_file.write_bytes(b"dummy")
+        result = kb.ingest_pdf(dummy_file, "gym")
+        assert result.chunk_count > 0
+        
+        # Verify stored chunks in db
+        chunks = db_session.query(KnowledgeChunk).filter(KnowledgeChunk.source == "dummy.pdf").all()
+        assert len(chunks) > 0
+        for chunk in chunks:
+            assert chunk.parent_content is not None
+            assert chunk.content in chunk.parent_content
+            assert len(chunk.parent_content) >= len(chunk.content)
+    finally:
+        GeminiEmbedder.embed_documents = orig_embed
+        pymupdf.open = orig_open
+
+
+def test_hybrid_search_sqlite_fallback(db_session):
+    from app.services.rag import KnowledgeBase
+    from app.db import KnowledgeChunk
+    from app.services.embeddings import GeminiEmbedder
+    
+    orig_embed_query = GeminiEmbedder.embed_query
+    GeminiEmbedder.embed_query = lambda self, text: [0.1] * 768
+    
+    try:
+        # Clear existing knowledge chunks to avoid side effects
+        db_session.query(KnowledgeChunk).delete()
+        db_session.commit()
+        
+        # Add chunks with different overlap
+        chunk1 = KnowledgeChunk(
+            document_hash="hash1",
+            source="doc1.pdf",
+            page=1,
+            discipline="gym",
+            content="Do deep squats for building leg strength.",
+            parent_content="Parent: Do deep squats for building leg strength. This is excellent for quads.",
+            embedding=str([0.1] * 768)
+        )
+        chunk2 = KnowledgeChunk(
+            document_hash="hash2",
+            source="doc2.pdf",
+            page=1,
+            discipline="gym",
+            content="Running on the treadmill improves cardiovascular endurance.",
+            parent_content="Parent: Running on the treadmill improves cardiovascular endurance. Keep a steady pace.",
+            embedding=str([0.1] * 768)
+        )
+        db_session.add_all([chunk1, chunk2])
+        db_session.commit()
+        
+        kb = KnowledgeBase(db_session)
+        # Retrieve asking about "squats"
+        results = kb.retrieve("give me some squats workout", ["gym"], limit=2)
+        
+        assert len(results) == 2
+        # The first result should be chunk1 because of keyword overlap ("squats" is in chunk1)
+        assert "squats" in results[0].text.lower()
+        # Verify it returns parent_content
+        assert results[0].text == chunk1.parent_content
+        assert results[1].text == chunk2.parent_content
+    finally:
+        GeminiEmbedder.embed_query = orig_embed_query
