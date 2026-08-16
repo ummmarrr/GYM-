@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "../context/AuthContext";
+import { useLanguage } from "../context/LanguageContext";
 import { api, ApiError } from "../lib/api";
 import type { GymClass, Profile, Programme } from "../lib/api";
 import { classTime, longDate, quotaLabel } from "../lib/format";
@@ -27,6 +28,7 @@ const EXPERIENCE = ["beginner", "intermediate", "advanced"];
 
 export default function MemberDashboard() {
   const { user, entitlements, refresh } = useAuth();
+  const { t } = useLanguage();
 
   const [classes, setClasses] = useState<GymClass[] | null>(null);
   const [programmes, setProgrammes] = useState<Programme[]>([]);
@@ -105,9 +107,8 @@ export default function MemberDashboard() {
   return (
     <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6">
       <h1 className="text-3xl font-extrabold tracking-tight text-white">
-        Hi {user?.full_name.split(" ")[0]}
+        {t("member.welcome", "Welcome back")}, {user?.full_name.split(" ")[0]}
       </h1>
-      <p className="mt-1.5 text-slate-400">Here is where your training stands today.</p>
 
       <div className="mt-6 space-y-3">
         <Alert kind="error" message={error} />
@@ -122,12 +123,12 @@ export default function MemberDashboard() {
                 <div className="flex items-center gap-2.5">
                   <h2 className="text-xl font-bold text-white">{entitlements.plan_name}</h2>
                   <Badge tone={expiringSoon ? "warn" : "volt"}>
-                    {expiringSoon ? "Expiring soon" : "Active"}
+                    {expiringSoon ? "Expiring soon" : t("member.activePackage", "Active Package")}
                   </Badge>
                 </div>
                 <p className="mt-1.5 text-sm text-slate-400">
                   Valid until {longDate(entitlements.expires_on)} · {entitlements.days_remaining}{" "}
-                  days left
+                  {t("member.daysLeft", "days left")}
                 </p>
                 <dl className="mt-5 grid grid-cols-2 gap-5 sm:grid-cols-3">
                   <div>
@@ -153,18 +154,18 @@ export default function MemberDashboard() {
               </div>
               <ButtonLink to="/packages" variant="outline">
                 <CreditCard className="h-4 w-4" aria-hidden />
-                Change package
+                {t("packages.title", "Packages")}
               </ButtonLink>
             </div>
           ) : (
             <div className="flex flex-wrap items-center justify-between gap-5">
               <div>
-                <h2 className="text-lg font-bold text-white">No active package</h2>
+                <h2 className="text-lg font-bold text-white">{t("member.noPackage", "No active package")}</h2>
                 <p className="mt-1 text-sm text-slate-400">
-                  Pick a package to unlock classes and a trainer-written programme.
+                  {t("member.noPackageDesc", "Explore our packages to unlock training programs, classes, and personalized coaching.")}
                 </p>
               </div>
-              <ButtonLink to="/packages">See packages</ButtonLink>
+              <ButtonLink to="/packages">{t("landing.ctaJoin", "Explore Packages")}</ButtonLink>
             </div>
           )}
         </div>
@@ -172,7 +173,7 @@ export default function MemberDashboard() {
 
       <div className="mt-10 grid gap-10 lg:grid-cols-2">
         <section>
-          <SectionTitle title="My programmes" subtitle="Written by your assigned trainer." />
+          <SectionTitle title={t("member.programmes", "Trainer Programmes")} subtitle="Written by your assigned trainer." />
           {programmes.length === 0 ? (
             <EmptyState
               icon={<ClipboardList className="h-8 w-8" />}
@@ -207,7 +208,7 @@ export default function MemberDashboard() {
         </section>
 
         <section>
-          <SectionTitle title="Upcoming classes" subtitle="Your package decides what you can book." />
+          <SectionTitle title={t("member.bookClass", "Book a Class")} subtitle="Your package decides what you can book." />
           {!classes ? (
             <Spinner label="Loading classes" />
           ) : classes.length === 0 ? (
@@ -239,10 +240,10 @@ export default function MemberDashboard() {
                     onClick={() => void toggleBooking(session)}
                   >
                     {session.booked_by_me
-                      ? "Cancel"
+                      ? t("btn.cancelBooking", "Cancel")
                       : session.seats_left === 0
                         ? "Full"
-                        : "Book"}
+                        : t("btn.book", "Book Seat")}
                   </Button>
                 </div>
               ))}
@@ -253,12 +254,12 @@ export default function MemberDashboard() {
 
       <section className="mt-12">
         <SectionTitle
-          title="My fitness profile"
+          title={t("member.fitnessProfile", "My Fitness Profile")}
           subtitle="FitBot reads this before every answer, so keep it honest."
         />
         {profile && (
           <form onSubmit={saveProfile} className="card grid gap-5 p-6 sm:grid-cols-2">
-            <Field label="Main goal">
+            <Field label={t("member.goal", "Goal")}>
               <input
                 className="input"
                 placeholder="e.g. lose 6 kg and get stronger"
@@ -267,7 +268,7 @@ export default function MemberDashboard() {
               />
             </Field>
 
-            <Field label="Experience level">
+            <Field label={t("member.experience", "Experience Level")}>
               <select
                 className="input"
                 value={profile.experience_level ?? ""}
@@ -284,7 +285,7 @@ export default function MemberDashboard() {
               </select>
             </Field>
 
-            <Field label="Equipment access">
+            <Field label={t("member.equipment", "Equipment Access")}>
               <input
                 className="input"
                 placeholder="e.g. full gym, or dumbbells at home"
@@ -296,7 +297,7 @@ export default function MemberDashboard() {
             </Field>
 
             <Field
-              label="Injuries or limits"
+              label={t("member.limitations", "Injuries or Limits")}
               hint="FitBot will work around these and escalate anything medical to a trainer."
             >
               <input
@@ -312,7 +313,7 @@ export default function MemberDashboard() {
             <div className="sm:col-span-2">
               <Button type="submit" busy={savingProfile}>
                 <Target className="h-4 w-4" aria-hidden />
-                Save profile
+                {t("member.saveProfile", "Save Profile")}
               </Button>
             </div>
           </form>

@@ -1,12 +1,39 @@
 import { useState } from "react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
-import { Dumbbell, LogOut, Menu, X } from "lucide-react";
+import { Dumbbell, Globe, LogOut, Menu, X } from "lucide-react";
 
 import { homeFor, useAuth } from "../context/AuthContext";
+import { useLanguage } from "../context/LanguageContext";
 import { initials } from "../lib/format";
 import { Button, ButtonLink } from "./ui";
 import ColdStartBanner from "./ColdStartBanner";
 import FitBotWidget from "./FitBotWidget";
+
+function LanguageSelector() {
+  const { language, setLanguage, languages } = useLanguage();
+
+  return (
+    <div className="relative inline-flex items-center">
+      <label htmlFor="language-select" className="sr-only">
+        Select Language
+      </label>
+      <Globe className="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-volt-400" aria-hidden />
+      <select
+        id="language-select"
+        value={language}
+        onChange={(e) => setLanguage(e.target.value as any)}
+        className="cursor-pointer appearance-none rounded-xl border border-ink-700 bg-ink-900 py-1.5 pl-8 pr-7 text-xs font-semibold text-white transition hover:border-volt-500/50 focus:border-volt-400 focus:outline-none focus:ring-1 focus:ring-volt-400"
+      >
+        {languages.map((l) => (
+          <option key={l.code} value={l.code} className="bg-ink-900 text-white">
+            {l.flag} {l.nativeName}
+          </option>
+        ))}
+      </select>
+      <span className="pointer-events-none absolute right-2.5 text-[9px] text-slate-400">▼</span>
+    </div>
+  );
+}
 
 function Brand() {
   return (
@@ -23,13 +50,15 @@ function Brand() {
 
 export default function Layout() {
   const { user, signOut } = useAuth();
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
 
   const links = [
-    { to: "/", label: "Home", end: true },
-    { to: "/packages", label: "Packages" },
-    ...(user ? [{ to: homeFor(user.role), label: "Dashboard" }] : []),
+    { to: "/", label: t("nav.home", "Home"), end: true },
+    { to: "/packages", label: t("nav.packages", "Packages") },
+    ...(user ? [{ to: homeFor(user.role), label: t("nav.dashboard", "Dashboard") }] : []),
+    ...(user && user.role === "admin" ? [{ to: "/admin/insights", label: t("nav.insights", "AI Insights") }] : []),
   ];
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>
@@ -52,6 +81,8 @@ export default function Layout() {
           </div>
 
           <div className="hidden items-center gap-3 md:flex">
+            <LanguageSelector />
+
             {user ? (
               <>
                 <div className="flex items-center gap-2.5">
@@ -60,7 +91,9 @@ export default function Layout() {
                   </span>
                   <div className="leading-tight">
                     <p className="text-sm font-medium text-white">{user.full_name}</p>
-                    <p className="text-[11px] uppercase tracking-wider text-slate-500">{user.role}</p>
+                    <p className="text-[11px] uppercase tracking-wider text-slate-500">
+                      {t(`nav.${user.role}`, user.role)}
+                    </p>
                   </div>
                 </div>
                 <Button
@@ -77,21 +110,24 @@ export default function Layout() {
             ) : (
               <>
                 <ButtonLink to="/login" variant="ghost">
-                  Sign in
+                  {t("nav.signIn", "Sign in")}
                 </ButtonLink>
-                <ButtonLink to="/join">Join now</ButtonLink>
+                <ButtonLink to="/join">{t("nav.join", "Join")}</ButtonLink>
               </>
             )}
           </div>
 
-          <button
-            className="rounded-lg p-2 text-slate-300 md:hidden"
-            onClick={() => setOpen((value) => !value)}
-            aria-label={open ? "Close menu" : "Open menu"}
-            aria-expanded={open}
-          >
-            {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-          </button>
+          <div className="flex items-center gap-2 md:hidden">
+            <LanguageSelector />
+            <button
+              className="rounded-lg p-2 text-slate-300"
+              onClick={() => setOpen((value) => !value)}
+              aria-label={open ? "Close menu" : "Open menu"}
+              aria-expanded={open}
+            >
+              {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </button>
+          </div>
         </nav>
 
         {open && (
@@ -119,7 +155,7 @@ export default function Layout() {
                       navigate("/");
                     }}
                   >
-                    Sign out
+                    {t("nav.signOut", "Sign out")}
                   </Button>
                 ) : (
                   <>
@@ -129,10 +165,10 @@ export default function Layout() {
                       className="flex-1"
                       onClick={() => setOpen(false)}
                     >
-                      Sign in
+                      {t("nav.signIn", "Sign in")}
                     </ButtonLink>
                     <ButtonLink to="/join" className="flex-1" onClick={() => setOpen(false)}>
-                      Join now
+                      {t("nav.join", "Join")}
                     </ButtonLink>
                   </>
                 )}
@@ -151,7 +187,7 @@ export default function Layout() {
       <footer className="border-t border-ink-800 bg-ink-950">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-4 py-8 text-sm text-slate-500 sm:flex-row sm:px-6">
           <Brand />
-          <p>Strength · Yoga · MMA — coached by FitBot and real trainers.</p>
+          <p>{t("footer.rights", "Master GYM. High-performance strength, yoga and combat sports.")}</p>
         </div>
       </footer>
 

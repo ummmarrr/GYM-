@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { ArrowUp, Bot, LifeBuoy, Lock, MessageCircle, Sparkles, X } from "lucide-react";
 
 import { homeFor, useAuth } from "../context/AuthContext";
+import { useLanguage } from "../context/LanguageContext";
 import { api, ApiError } from "../lib/api";
 import type { ChatAction } from "../lib/api";
 import { Alert, Button } from "./ui";
@@ -15,20 +16,6 @@ interface Bubble {
   handoff?: boolean;
   action?: ChatAction;
 }
-
-const GREETING: Bubble = {
-  id: 0,
-  from: "fitbot",
-  text:
-    "Hi, I'm FitBot. Ask me about training, yoga, MMA, our packages or your own plan. " +
-    "I never ask for your password here.",
-};
-
-const PROMPTS = [
-  "What packages do you have?",
-  "Give me a beginner push day",
-  "How do I improve my flexibility?",
-];
 
 /** Signing in from inside the chat, without ever putting a password in the transcript. */
 function SecureAuthCard({ mode, onDone }: { mode: "login" | "signup"; onDone: () => void }) {
@@ -110,10 +97,11 @@ function SecureAuthCard({ mode, onDone }: { mode: "login" | "signup"; onDone: ()
 
 export default function FitBotWidget() {
   const { user, refresh } = useAuth();
+  const { language, t } = useLanguage();
   const navigate = useNavigate();
 
   const [open, setOpen] = useState(false);
-  const [bubbles, setBubbles] = useState<Bubble[]>([GREETING]);
+  const [bubbles, setBubbles] = useState<Bubble[]>([]);
   const [draft, setDraft] = useState("");
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [thinking, setThinking] = useState(false);
@@ -122,6 +110,28 @@ export default function FitBotWidget() {
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const nextId = useRef(1);
+
+  // Initialize localized greeting on mount or reset
+  useEffect(() => {
+    if (bubbles.length === 0) {
+      setBubbles([
+        {
+          id: 0,
+          from: "fitbot",
+          text: t(
+            "fitbot.greeting",
+            "Hi, I'm FitBot. Ask me about training, yoga, MMA, our packages or your own plan. I never ask for your password here.",
+          ),
+        },
+      ]);
+    }
+  }, [t, bubbles.length]);
+
+  const prompts = [
+    t("fitbot.prompt1", "What packages do you have?"),
+    t("fitbot.prompt2", "Give me a beginner push day"),
+    t("fitbot.prompt3", "How do I improve my flexibility?"),
+  ];
 
   useEffect(() => {
     if (open) endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -152,7 +162,7 @@ export default function FitBotWidget() {
     setAuthMode(null);
 
     try {
-      const reply = await api.chat(message, conversationId);
+      const reply = await api.chat(message, conversationId, language);
       setConversationId(reply.conversation_id);
       push({
         from: "fitbot",
@@ -196,7 +206,7 @@ export default function FitBotWidget() {
                    focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-volt-400"
       >
         <MessageCircle className="h-5 w-5" aria-hidden />
-        Ask FitBot
+        {t("landing.ctaChat", "Ask FitBot")}
       </button>
     );
   }
@@ -214,9 +224,9 @@ export default function FitBotWidget() {
             <Bot className="h-5 w-5" aria-hidden />
           </span>
           <div className="leading-tight">
-            <p className="text-sm font-bold text-white">FitBot</p>
+            <p className="text-sm font-bold text-white">{t("fitbot.title", "FitBot")}</p>
             <p className="text-[11px] text-slate-400">
-              {user ? `Coaching ${user.full_name.split(" ")[0]}` : "Reception · Gym · Yoga · MMA"}
+              {user ? `Coaching ${user.full_name.split(" ")[0]}` : t("fitbot.subtitle", "AI Coach & Front Desk")}
             </p>
           </div>
         </div>
@@ -233,64 +243,67 @@ export default function FitBotWidget() {
         {bubbles.map((bubble) => (
           <div
             key={bubble.id}
-            className={`flex ${bubble.from === "you" ? "justify-end" : "justify-start"}`}
+            className={`flex flex-col gap-1.5 ${bubble.from === "you" ? "items-end" : "items-start"}`}
           >
             <div
-              data-testid="fitbot-message"
-              className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
+              className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
                 bubble.from === "you"
-                  ? "bg-volt-400 text-ink-950"
-                  : "border border-ink-700 bg-ink-850 text-slate-200"
+                  ? "bg-volt-400 font-medium text-ink-950"
+                  : "border border-ink-750 bg-ink-800 text-slate-200"
               }`}
             >
               {bubble.text}
-
-              {bubble.handoff && (
-                <p className="mt-2 flex items-center gap-1.5 text-xs text-amber-300">
-                  <LifeBuoy className="h-3.5 w-3.5" aria-hidden />
-                  Flagged for a human trainer
-                </p>
-              )}
-
-              {bubble.sources && bubble.sources.length > 0 && (
-                <p className="mt-2 border-t border-ink-700 pt-2 text-[11px] text-slate-500">
-                  From: {Array.from(new Set(bubble.sources)).join(" · ")}
-                </p>
-              )}
-
-              {bubble.action === "upgrade" && (
-                <Button
-                  className="mt-2.5 w-full"
-                  onClick={() => {
-                    setOpen(false);
-                    navigate("/packages");
-                  }}
-                >
-                  <Sparkles className="h-4 w-4" aria-hidden />
-                  See upgrade options
-                </Button>
-              )}
             </div>
+
+            {bubble.sources && bubble.sources.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 px-1 text-[11px] text-slate-400">
+                <Sparkles className="h-3 w-3 text-volt-400" aria-hidden />
+                <span>{t("fitbot.sources", "Sources:")}</span>
+                {bubble.sources.map((source) => (
+                  <span
+                    key={source}
+                    className="rounded bg-ink-800 px-1.5 py-0.5 font-mono text-[10px] text-slate-300"
+                  >
+                    {source}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {bubble.handoff && (
+              <div className="flex items-center gap-1.5 px-1 text-[11px] text-amber-400">
+                <LifeBuoy className="h-3.5 w-3.5" aria-hidden />
+                <span>{t("fitbot.handoffNotice", "Needs human trainer assistance")}</span>
+              </div>
+            )}
+
+            {bubble.action === "upgrade" && (
+              <Button
+                variant="outline"
+                className="mt-1 text-xs"
+                onClick={() => {
+                  setOpen(false);
+                  navigate("/packages");
+                }}
+              >
+                {t("fitbot.upgradeBtn", "View upgrade options")}
+              </Button>
+            )}
           </div>
         ))}
 
         {authMode && <SecureAuthCard mode={authMode} onDone={onAuthDone} />}
 
         {thinking && (
-          <div className="flex gap-1.5 px-1" aria-label="FitBot is typing">
-            {[0, 150, 300].map((delay) => (
-              <span
-                key={delay}
-                className="h-2 w-2 animate-bounce rounded-full bg-slate-600"
-                style={{ animationDelay: `${delay}ms` }}
-              />
-            ))}
+          <div className="flex items-center gap-1.5 rounded-2xl border border-ink-750 bg-ink-800 px-4 py-3 text-slate-400">
+            <Bot className="h-4 w-4 animate-spin text-volt-400" />
+            <span className="text-xs">FitBot is thinking...</span>
           </div>
         )}
 
         {bubbles.length === 1 && !thinking && (
           <div className="flex flex-wrap gap-2 pt-1">
-            {PROMPTS.map((prompt) => (
+            {prompts.map((prompt) => (
               <button
                 key={prompt}
                 onClick={() => void send(prompt)}
@@ -317,7 +330,7 @@ export default function FitBotWidget() {
           ref={inputRef}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          placeholder="Ask FitBot anything…"
+          placeholder={t("fitbot.placeholder", "Ask FitBot anything…")}
           maxLength={4000}
           className="input flex-1"
           aria-label="Message FitBot"

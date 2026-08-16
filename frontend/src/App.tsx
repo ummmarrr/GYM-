@@ -12,16 +12,21 @@ import MemberDashboard from "./pages/MemberDashboard";
 import Packages from "./pages/Packages";
 import TrainerDashboard from "./pages/TrainerDashboard";
 
+import { useLanguage } from "./context/LanguageContext";
+
 function NotFound() {
+  const { t } = useLanguage();
   return (
     <div className="mx-auto max-w-md px-4 py-32 text-center">
       <p className="text-6xl font-extrabold text-volt-400">404</p>
-      <h1 className="mt-4 text-2xl font-bold text-white">This page skipped leg day</h1>
+      <h1 className="mt-4 text-2xl font-bold text-white">
+        {t("notfound.title", "This page skipped leg day")}
+      </h1>
       <p className="mt-2 text-slate-400">
-        The page you were looking for does not exist. Let's get you back to training.
+        {t("notfound.desc", "The page you were looking for does not exist. Let's get you back to training.")}
       </p>
       <ButtonLink to="/" className="mt-7">
-        Back to home
+        {t("notfound.btn", "Back to home")}
       </ButtonLink>
     </div>
   );

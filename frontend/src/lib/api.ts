@@ -322,8 +322,8 @@ export const api = {
   },
   deleteDocument: (id: string) => remove<{ message: string }>(`/admin/knowledge/documents/${id}`),
 
-  chat: (message: string, conversationId: string | null) =>
-    post<ChatReply>("/fitbot/chat", { message, conversation_id: conversationId }),
+  chat: (message: string, conversationId: string | null, language: string = "en") =>
+    post<ChatReply>("/fitbot/chat", { message, conversation_id: conversationId, language }),
 
   metrics: () => get<MetricTable[]>("/admin/analyst/metrics"),
   askAnalyst: (question: string) => post<AnalystAnswer>("/admin/analyst/ask", { question }),

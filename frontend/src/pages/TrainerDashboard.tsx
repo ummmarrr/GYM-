@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { CalendarPlus, ClipboardList, Trash2, Users } from "lucide-react";
 
 import { useAuth } from "../context/AuthContext";
+import { useLanguage } from "../context/LanguageContext";
 import { api, ApiError } from "../lib/api";
 import type { GymClass, Person, Programme } from "../lib/api";
 import { classTime, longDate } from "../lib/format";
@@ -20,6 +21,7 @@ const DISCIPLINES = ["gym", "yoga", "mma"];
 
 export default function TrainerDashboard() {
   const { user } = useAuth();
+  const { t } = useLanguage();
 
   const [members, setMembers] = useState<Person[] | null>(null);
   const [classes, setClasses] = useState<GymClass[]>([]);
@@ -125,8 +127,12 @@ export default function TrainerDashboard() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6">
-      <h1 className="text-3xl font-extrabold tracking-tight text-white">Trainer desk</h1>
-      <p className="mt-1.5 text-slate-400">Your members, their programmes, and your timetable.</p>
+      <h1 className="text-3xl font-extrabold tracking-tight text-white">
+        {t("trainer.title", "Trainer Dashboard")}
+      </h1>
+      <p className="mt-1.5 text-slate-400">
+        {t("trainer.subtitle", "Manage assigned members, send custom diet & workout programmes, and schedule classes.")}
+      </p>
 
       <div className="mt-6 space-y-3">
         <Alert kind="error" message={error} />
@@ -134,14 +140,14 @@ export default function TrainerDashboard() {
       </div>
 
       <div className="mt-8 grid gap-5 sm:grid-cols-3">
-        <Stat label="My members" value={members?.length ?? "—"} icon={<Users className="h-4 w-4" />} />
+        <Stat label={t("trainer.membersCount", "Assigned Members")} value={members?.length ?? "—"} icon={<Users className="h-4 w-4" />} />
         <Stat
-          label="Upcoming classes"
+          label={t("trainer.classesCount", "Scheduled Classes")}
           value={classes.length}
           icon={<CalendarPlus className="h-4 w-4" />}
         />
         <Stat
-          label="Seats booked"
+          label={t("member.classes", "Classes")}
           value={classes.reduce((total, session) => total + session.seats_taken, 0)}
           icon={<ClipboardList className="h-4 w-4" />}
         />
@@ -149,14 +155,14 @@ export default function TrainerDashboard() {
 
       <div className="mt-12 grid gap-10 lg:grid-cols-[20rem_1fr]">
         <section>
-          <SectionTitle title="My members" />
+          <SectionTitle title={t("trainer.roster", "Member Roster")} />
           {!members ? (
-            <Spinner label="Loading members" />
+            <Spinner label={t("msg.loading", "Loading...")} />
           ) : members.length === 0 ? (
             <EmptyState
               icon={<Users className="h-8 w-8" />}
-              title="No members assigned"
-              body="An admin needs to assign members to you before you can write their programmes."
+              title={t("trainer.noMembersTitle", "No members assigned yet")}
+              body={t("trainer.noMembersBody", "When members are assigned to you by admin, they will show up here.")}
             />
           ) : (
             <div className="space-y-2">
@@ -173,7 +179,7 @@ export default function TrainerDashboard() {
                   <p className="font-semibold text-white">{member.full_name}</p>
                   <p className="mt-0.5 truncate text-xs text-slate-400">{member.email}</p>
                   <p className="mt-1.5 text-xs text-slate-500">
-                    {member.plan_name ? `${member.plan_name} · ${longDate(member.expires_on)}` : "No package"}
+                    {member.plan_name ? `${member.plan_name} · ${longDate(member.expires_on)}` : t("member.noPackage", "No package")}
                   </p>
                 </button>
               ))}
@@ -185,7 +191,7 @@ export default function TrainerDashboard() {
           {selected ? (
             <>
               <SectionTitle
-                title={`Programme for ${selected.full_name}`}
+                title={`${t("trainer.assignProgramme", "Assign Programme")} — ${selected.full_name}`}
                 subtitle="This appears on their dashboard immediately and FitBot can explain it."
               />
 
@@ -197,11 +203,11 @@ export default function TrainerDashboard() {
                       value={kind}
                       onChange={(event) => setKind(event.target.value as "workout" | "diet")}
                     >
-                      <option value="workout">Workout</option>
-                      <option value="diet">Diet</option>
+                      <option value="workout">{t("trainer.workoutPlan", "Workout Plan")}</option>
+                      <option value="diet">{t("trainer.dietPlan", "Diet Plan")}</option>
                     </select>
                   </Field>
-                  <Field label="Title">
+                  <Field label={t("trainer.programmeTitle", "Programme Title")}>
                     <input
                       className="input"
                       value={title}
@@ -213,7 +219,7 @@ export default function TrainerDashboard() {
                   </Field>
                 </div>
 
-                <Field label="Details">
+                <Field label={t("trainer.programmeContent", "Detailed Instructions")}>
                   <textarea
                     className="input min-h-40 resize-y"
                     value={content}
@@ -227,14 +233,14 @@ export default function TrainerDashboard() {
                 </Field>
 
                 <Button type="submit" busy={savingProgramme}>
-                  Assign programme
+                  {t("trainer.sendProgramme", "Send to Member")}
                 </Button>
               </form>
 
               <div className="mt-8">
-                <SectionTitle title="Previously assigned" />
+                <SectionTitle title={t("member.programmes", "Trainer Programmes")} />
                 {programmes.length === 0 ? (
-                  <p className="text-sm text-slate-500">Nothing assigned to them yet.</p>
+                  <p className="text-sm text-slate-500">{t("member.noProgrammeTitle", "Nothing assigned yet.")}</p>
                 ) : (
                   <div className="space-y-3">
                     {programmes.map((programme) => (
@@ -258,7 +264,7 @@ export default function TrainerDashboard() {
           ) : (
             <EmptyState
               icon={<ClipboardList className="h-8 w-8" />}
-              title="Pick a member"
+              title={t("trainer.assignProgramme", "Assign Programme")}
               body="Select someone from your roster to write or review their workout and diet programme."
             />
           )}
@@ -266,10 +272,10 @@ export default function TrainerDashboard() {
       </div>
 
       <section className="mt-14">
-        <SectionTitle title="Timetable" subtitle="Add a class and members can book it right away." />
+        <SectionTitle title={t("trainer.scheduleClass", "Schedule Class")} subtitle="Add a class and members can book it right away." />
 
         <form onSubmit={addClass} className="card grid gap-4 p-6 sm:grid-cols-4">
-          <Field label="Class name">
+          <Field label={t("trainer.className", "Class Name")}>
             <input
               className="input"
               value={className}
@@ -279,7 +285,7 @@ export default function TrainerDashboard() {
               minLength={2}
             />
           </Field>
-          <Field label="Discipline">
+          <Field label={t("trainer.discipline", "Discipline")}>
             <select
               className="input"
               value={discipline}
@@ -287,12 +293,12 @@ export default function TrainerDashboard() {
             >
               {DISCIPLINES.map((item) => (
                 <option key={item} value={item}>
-                  {item}
+                  {item.toUpperCase()}
                 </option>
               ))}
             </select>
           </Field>
-          <Field label="Starts at">
+          <Field label={t("trainer.startTime", "Start Date & Time")}>
             <input
               className="input"
               type="datetime-local"
@@ -301,7 +307,7 @@ export default function TrainerDashboard() {
               required
             />
           </Field>
-          <Field label="Capacity">
+          <Field label={t("trainer.capacity", "Capacity (Seats)")}>
             <input
               className="input"
               type="number"
@@ -315,7 +321,7 @@ export default function TrainerDashboard() {
           <div className="sm:col-span-4">
             <Button type="submit" busy={savingClass}>
               <CalendarPlus className="h-4 w-4" aria-hidden />
-              Add class
+              {t("trainer.addClass", "Add to Timetable")}
             </Button>
           </div>
         </form>
@@ -330,7 +336,7 @@ export default function TrainerDashboard() {
                     <Badge>{session.discipline}</Badge>
                   </div>
                   <p className="mt-1 text-sm text-slate-400">
-                    {classTime(session.starts_at)} · {session.seats_taken}/{session.capacity} booked
+                    {classTime(session.starts_at)} · {session.seats_taken}/{session.capacity} {t("member.classesUsed", "used")}
                   </p>
                 </div>
                 <Button

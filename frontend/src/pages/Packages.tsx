@@ -3,29 +3,15 @@ import { useNavigate } from "react-router-dom";
 import { Check, Sparkles } from "lucide-react";
 
 import { useAuth } from "../context/AuthContext";
+import { useLanguage } from "../context/LanguageContext";
 import { api, ApiError } from "../lib/api";
 import type { Plan } from "../lib/api";
 import { quotaLabel, rupees } from "../lib/format";
 import { Alert, Badge, Button, Spinner } from "../components/ui";
 
-function perks(plan: Plan): string[] {
-  const disciplines = plan.allowed_disciplines
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-  return [
-    `${disciplines.map((item) => item.toUpperCase()).join(" + ")} access`,
-    `Classes: ${quotaLabel(plan.monthly_class_quota)}`,
-    plan.personalised_programme
-      ? "Trainer-written workout and diet plan"
-      : "General coaching from FitBot",
-    plan.priority_support ? "Priority support" : "Standard support",
-    `${plan.duration_days} days validity`,
-  ];
-}
-
 export default function Packages() {
   const { user, entitlements, refresh } = useAuth();
+  const { t } = useLanguage();
   const navigate = useNavigate();
 
   const [plans, setPlans] = useState<Plan[] | null>(null);
@@ -61,16 +47,36 @@ export default function Packages() {
     }
   };
 
+  const perks = (plan: Plan): string[] => {
+    const disciplines = plan.allowed_disciplines
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+    return [
+      `${disciplines.map((item) => item.toUpperCase()).join(" + ")} access`,
+      `Classes: ${quotaLabel(plan.monthly_class_quota)}`,
+      plan.personalised_programme
+        ? t("packages.personalised", "Personalized workout & diet programme")
+        : "General coaching from FitBot",
+      plan.priority_support
+        ? t("packages.priority", "Priority trainer support")
+        : "Standard support",
+      `${plan.duration_days} ${t("packages.days", "days")}`,
+    ];
+  };
+
   return (
     <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
       <div className="mx-auto max-w-2xl text-center">
-        <h1 className="text-4xl font-extrabold tracking-tight text-white">Packages</h1>
+        <h1 className="text-4xl font-extrabold tracking-tight text-white">
+          {t("packages.title", "Simple, transparent packages")}
+        </h1>
         <p className="mt-3 text-slate-400">
-          Every limit here is enforced by the server, so what you buy is exactly what you get.
+          {t("packages.subtitle", "Choose the tier that matches your goals. Every package comes with gym floor access and 24/7 FitBot assistance.")}
         </p>
         {entitlements?.has_active_membership && (
           <p className="mt-4 text-sm text-volt-400">
-            You are on {entitlements.plan_name} with {entitlements.days_remaining} days left.
+            You are on {entitlements.plan_name} with {entitlements.days_remaining} {t("member.daysLeft", "days left")}.
           </p>
         )}
       </div>
@@ -98,7 +104,7 @@ export default function Packages() {
                   <span className="absolute -top-3 left-1/2 -translate-x-1/2">
                     <Badge tone="volt">
                       <Sparkles className="mr-1 h-3 w-3" aria-hidden />
-                      Most popular
+                      Popular
                     </Badge>
                   </span>
                 )}
@@ -111,7 +117,9 @@ export default function Packages() {
                 <p className="mt-5 text-4xl font-extrabold tracking-tight text-white">
                   {rupees(plan.price_paise)}
                 </p>
-                <p className="text-sm text-slate-500">for {plan.duration_days} days</p>
+                <p className="text-sm text-slate-500">
+                  for {plan.duration_days} {t("packages.days", "days")}
+                </p>
 
                 <ul className="mt-6 flex-1 space-y-2.5">
                   {perks(plan).map((perk) => (
@@ -129,17 +137,13 @@ export default function Packages() {
                   disabled={current}
                   onClick={() => void choose(plan)}
                 >
-                  {current ? "Your current package" : user ? "Activate" : "Join and choose"}
+                  {current ? "Active Plan" : user ? t("packages.getStarted", "Get Started") : t("nav.join", "Join")}
                 </Button>
               </div>
             );
           })}
         </div>
       )}
-
-      <p className="mt-10 text-center text-xs text-slate-500">
-        Payments are simulated in this build. No card details are collected anywhere in the app.
-      </p>
     </div>
   );
 }

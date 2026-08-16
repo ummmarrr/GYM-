@@ -11,6 +11,7 @@ import {
   Table2,
 } from "lucide-react";
 
+import { useLanguage } from "../context/LanguageContext";
 import { api, ApiError } from "../lib/api";
 import type { AdvisorReport, MetricTable, Priority, Recommendation } from "../lib/api";
 import { Alert, Badge, Button, SectionTitle, Spinner } from "../components/ui";
@@ -105,6 +106,7 @@ function RecommendationCard({ item }: { item: Recommendation }) {
 }
 
 export default function AdminInsights() {
+  const { t } = useLanguage();
   const [tab, setTab] = useState<"analyst" | "advisor">("analyst");
 
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -177,26 +179,27 @@ export default function AdminInsights() {
         className="inline-flex items-center gap-1.5 text-sm text-slate-400 transition hover:text-white"
       >
         <ChevronLeft className="h-4 w-4" aria-hidden />
-        Back to admin console
+        {t("notfound.btn", "Back")}
       </Link>
 
       <div className="mt-4 flex items-center gap-2.5">
-        <h1 className="text-3xl font-extrabold tracking-tight text-white">Insights</h1>
+        <h1 className="text-3xl font-extrabold tracking-tight text-white">
+          {t("admin.insightsTitle", "AI Analyst & Executive Advisor")}
+        </h1>
         <Badge tone="volt">
           <ShieldCheck className="mr-1 h-3 w-3" aria-hidden />
-          Admin only
+          {t("nav.admin", "Admin")}
         </Badge>
       </div>
       <p className="mt-1.5 max-w-2xl text-slate-400">
-        Two agents over your live gym data. Both read from vetted queries only, so every number
-        here comes from the database rather than from the model.
+        {t("admin.insightsSubtitle", "Ask questions about gym operations, track real-time analytics, and generate strategic executive reports.")}
       </p>
 
       <div className="mt-7 flex gap-2 border-b border-ink-800">
         {(
           [
-            { id: "analyst", label: "Data analyst", icon: BarChart3 },
-            { id: "advisor", label: "Advisor", icon: Compass },
+            { id: "analyst", label: "AI Analyst", icon: BarChart3 },
+            { id: "advisor", label: "Executive Advisor", icon: Compass },
           ] as const
         ).map(({ id, label, icon: Icon }) => (
           <button
@@ -283,7 +286,7 @@ export default function AdminInsights() {
               </div>
             ))}
 
-            {asking && <Spinner label="Querying your data" />}
+            {asking && <Spinner label={t("msg.loading", "Loading...")} />}
             <div ref={endRef} />
           </div>
 
@@ -298,7 +301,7 @@ export default function AdminInsights() {
               className="input flex-1 border-0 bg-transparent focus:ring-0"
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
-              placeholder="Ask the analyst a question about your gym…"
+              placeholder={t("admin.askPlaceholder", "Ask AI Analyst (e.g. 'How is revenue trending?')...")}
               maxLength={500}
               aria-label="Question for the data analyst"
             />
@@ -310,7 +313,7 @@ export default function AdminInsights() {
       ) : (
         <section className="mt-6">
           {loadingReport && !report ? (
-            <Spinner label="Reviewing your gym" />
+            <Spinner label={t("msg.loading", "Loading...")} />
           ) : report ? (
             <>
               <div className="card p-6">

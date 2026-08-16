@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 
+import { useLanguage } from "../context/LanguageContext";
 import { onColdStart } from "../lib/api";
 
 export default function ColdStartBanner() {
   const [waking, setWaking] = useState(false);
+  const { t } = useLanguage();
 
   useEffect(() => onColdStart(setWaking), []);
 
@@ -18,7 +20,7 @@ export default function ColdStartBanner() {
         shadow-lg backdrop-blur"
     >
       <Loader2 className="h-4 w-4 shrink-0 animate-spin text-volt-400" aria-hidden />
-      <span>Waking the demo server — free hosting sleeps when idle, so give it a minute.</span>
+      <span>{t("coldstart.waking", "Waking the demo server — free hosting sleeps when idle, so give it a minute.")}</span>
     </div>
   );
 }

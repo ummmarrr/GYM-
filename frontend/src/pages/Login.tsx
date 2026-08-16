@@ -3,11 +3,10 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Lock } from "lucide-react";
 
 import { homeFor, useAuth } from "../context/AuthContext";
+import { useLanguage } from "../context/LanguageContext";
 import { ApiError } from "../lib/api";
 import { Alert, Button, Field } from "../components/ui";
 
-// Public tour logins. The API refuses writes from these addresses, so a visitor can open
-// every dashboard without being able to change anything for the next visitor.
 const DEMO_LOGINS = [
   { role: "Member", email: "member-demo@example.com", password: "DemoMember123" },
   { role: "Trainer", email: "trainer-demo@example.com", password: "DemoTrainer123" },
@@ -16,6 +15,7 @@ const DEMO_LOGINS = [
 
 export default function Login() {
   const { signIn } = useAuth();
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -55,13 +55,15 @@ export default function Login() {
         <span className="grid h-11 w-11 place-items-center rounded-xl bg-volt-400/10 text-volt-400">
           <Lock className="h-5 w-5" aria-hidden />
         </span>
-        <h1 className="mt-5 text-2xl font-bold tracking-tight text-white">Welcome back</h1>
+        <h1 className="mt-5 text-2xl font-bold tracking-tight text-white">
+          {t("auth.signInTitle", "Welcome back")}
+        </h1>
         <p className="mt-1.5 text-sm text-slate-400">
-          Sign in to see your programme, package and classes.
+          {t("auth.signInSubtitle", "Sign in to your Master GYM account")}
         </p>
 
         <form onSubmit={submit} className="mt-7 space-y-4">
-          <Field label="Email">
+          <Field label={t("auth.email", "Email Address")}>
             <input
               className="input"
               type="email"
@@ -73,7 +75,7 @@ export default function Login() {
             />
           </Field>
 
-          <Field label="Password">
+          <Field label={t("auth.password", "Password")}>
             <input
               className="input"
               type="password"
@@ -87,23 +89,19 @@ export default function Login() {
           <Alert kind="error" message={error} />
 
           <Button type="submit" busy={busy} className="w-full">
-            Sign in
+            {t("auth.submitSignIn", "Sign In")}
           </Button>
         </form>
 
         <p className="mt-6 text-center text-sm text-slate-400">
-          New to Master GYM?{" "}
+          {t("auth.noAccount", "Don't have an account?")}{" "}
           <Link to="/join" className="font-semibold text-volt-400 hover:underline">
-            Create an account
+            {t("nav.join", "Join")}
           </Link>
         </p>
 
         <div className="mt-7 rounded-xl border border-ink-700 bg-ink-900/60 p-4">
-          <p className="text-sm font-semibold text-white">Just looking around?</p>
-          <p className="mt-1 text-xs text-slate-400">
-            Pick a role to sign in instantly. These shared logins can read everything and change
-            nothing.
-          </p>
+          <p className="text-sm font-semibold text-white">{t("auth.demoAccounts", "Quick Demo Login")}</p>
           <div className="mt-3 grid gap-2 sm:grid-cols-3">
             {DEMO_LOGINS.map((demo) => (
               <Button
@@ -113,24 +111,12 @@ export default function Login() {
                 disabled={busy}
                 onClick={() => useDemo(demo)}
               >
-                {demo.role}
+                {t(`nav.${demo.role.toLowerCase()}`, demo.role)}
               </Button>
             ))}
           </div>
-          <dl className="mt-3 space-y-1 text-[11px] text-slate-500">
-            {DEMO_LOGINS.map((demo) => (
-              <div key={demo.email} className="flex justify-between gap-2">
-                <dt>{demo.email}</dt>
-                <dd className="font-mono">{demo.password}</dd>
-              </div>
-            ))}
-          </dl>
         </div>
       </div>
-
-      <p className="mt-5 text-center text-xs text-slate-500">
-        Admins sign in here on the web app only. FitBot never handles admin access.
-      </p>
     </div>
   );
 }

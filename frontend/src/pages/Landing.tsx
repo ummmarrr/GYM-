@@ -1,60 +1,51 @@
 import {
   ArrowRight,
   Bot,
-  CalendarCheck,
   Dumbbell,
   Flower2,
-  ShieldCheck,
   Swords,
-  Users,
 } from "lucide-react";
 
 import { homeFor, useAuth } from "../context/AuthContext";
+import { useLanguage } from "../context/LanguageContext";
 import { Badge, ButtonLink } from "../components/ui";
-
-const DISCIPLINES = [
-  {
-    icon: Dumbbell,
-    title: "Strength & Conditioning",
-    body: "Progressive overload built around your lifts, your schedule and the equipment you actually have.",
-  },
-  {
-    icon: Flower2,
-    title: "Yoga & Mobility",
-    body: "Guided asana, breathwork and mobility work that undoes what a desk job does to your hips.",
-  },
-  {
-    icon: Swords,
-    title: "MMA & Striking",
-    body: "Boxing, muay thai and grappling fundamentals, drilled safely with qualified coaches.",
-  },
-];
-
-const FEATURES = [
-  {
-    icon: Bot,
-    title: "FitBot answers instantly",
-    body: "A coach in your pocket that reads the gym's own manuals before it answers, so advice matches what our trainers teach.",
-  },
-  {
-    icon: Users,
-    title: "A real trainer behind it",
-    body: "Your assigned trainer writes your workout and diet programme. FitBot explains and adapts it day to day.",
-  },
-  {
-    icon: CalendarCheck,
-    title: "Book classes in seconds",
-    body: "Live seat counts across strength, yoga and MMA sessions, with your package limits applied automatically.",
-  },
-  {
-    icon: ShieldCheck,
-    title: "Safety comes first",
-    body: "Anything medical is escalated to a human, never guessed at. FitBot will never ask for your password.",
-  },
-];
 
 export default function Landing() {
   const { user } = useAuth();
+  const { t } = useLanguage();
+
+  const disciplines = [
+    {
+      icon: Dumbbell,
+      title: t("landing.feature1Title", "Strength & Conditioning"),
+      body: t(
+        "landing.feature1Desc",
+        "State-of-the-art free weights, Olympic lifting platforms, and pin-loaded machines for optimal muscle hypertrophy and raw power.",
+      ),
+    },
+    {
+      icon: Flower2,
+      title: t("landing.feature2Title", "Yoga & Mobility"),
+      body: t(
+        "landing.feature2Desc",
+        "Calm, dedicated studio with experienced gurus for Asana mastery, breath control, flexibility, and core stability.",
+      ),
+    },
+    {
+      icon: Swords,
+      title: t("landing.feature3Title", "MMA & Combat Arena"),
+      body: t(
+        "landing.feature3Desc",
+        "Full-size cage, heavy bags, and tatami mats for boxing, Muay Thai striking, wrestling, and Brazilian Jiu-Jitsu.",
+      ),
+    },
+  ];
+
+  const stats = [
+    { value: t("landing.stat1Val", "3 Disciplines"), label: t("landing.stat1Lbl", "Gym, Yoga & MMA Combat") },
+    { value: t("landing.stat2Val", "24/7 AI Coach"), label: t("landing.stat2Lbl", "Personalized to your package") },
+    { value: t("landing.stat3Val", "Expert Staff"), label: t("landing.stat3Lbl", "Custom diet & workout plans") },
+  ];
 
   return (
     <>
@@ -67,50 +58,56 @@ export default function Landing() {
           <div className="animate-rise">
             <Badge tone="volt">
               <Bot className="mr-1.5 h-3 w-3" aria-hidden />
-              Now with FitBot, your AI coach
+              {t("landing.badge", "Smart Gym & AI Coaching")}
             </Badge>
           </div>
 
           <h1 className="animate-rise mt-6 text-5xl font-extrabold leading-[1.05] tracking-tight text-white sm:text-7xl">
-            Train with intent.
+            {t("landing.heroTitle1", "Train with precision.")}
             <br />
-            <span className="text-volt-400">Not guesswork.</span>
+            <span className="text-volt-400">{t("landing.heroTitle2", "Coached by intelligence.")}</span>
           </h1>
 
           <p className="animate-rise mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-slate-400">
-            Master GYM combines real coaches with FitBot — an assistant that knows your package,
-            your programme and your limits, and answers at 5am when nobody else will.
+            {t(
+              "landing.heroSubtitle",
+              "Elite equipment, certified trainers, and FitBot — your personalized 24/7 AI coach trained on our official gym curricula.",
+            )}
           </p>
 
           <div className="animate-rise mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
             {user ? (
               <ButtonLink to={homeFor(user.role)} className="px-6 py-3">
-                Go to my dashboard
+                {t("nav.dashboard", "Dashboard")}
                 <ArrowRight className="h-4 w-4" aria-hidden />
               </ButtonLink>
             ) : (
               <>
-                <ButtonLink to="/join" className="px-6 py-3">
-                  Start training
+                <ButtonLink to="/packages" className="px-6 py-3">
+                  {t("landing.ctaJoin", "Explore Packages")}
                   <ArrowRight className="h-4 w-4" aria-hidden />
                 </ButtonLink>
-                <ButtonLink to="/packages" variant="outline" className="px-6 py-3">
-                  See packages
+                <ButtonLink to="/join" variant="outline" className="px-6 py-3">
+                  {t("nav.join", "Join")}
                 </ButtonLink>
               </>
             )}
           </div>
 
-          <p className="mt-5 text-sm text-slate-500">
-            Or tap <span className="font-semibold text-volt-400">Ask FitBot</span> in the corner —
-            no account needed to try it.
-          </p>
+          <div className="mt-14 grid grid-cols-1 gap-4 border-t border-ink-800 pt-8 sm:grid-cols-3">
+            {stats.map((s) => (
+              <div key={s.value} className="text-center">
+                <p className="text-2xl font-extrabold text-volt-400">{s.value}</p>
+                <p className="mt-1 text-xs text-slate-400">{s.label}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
       <section className="border-y border-ink-800 bg-ink-900/50">
         <div className="mx-auto grid max-w-6xl gap-6 px-4 py-16 sm:px-6 md:grid-cols-3">
-          {DISCIPLINES.map(({ icon: Icon, title, body }) => (
+          {disciplines.map(({ icon: Icon, title, body }) => (
             <div key={title} className="card p-6 transition hover:border-volt-500/40">
               <span className="grid h-11 w-11 place-items-center rounded-xl bg-volt-400/10 text-volt-400">
                 <Icon className="h-5 w-5" aria-hidden />
@@ -119,47 +116,6 @@ export default function Landing() {
               <p className="mt-2 text-sm leading-relaxed text-slate-400">{body}</p>
             </div>
           ))}
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
-        <div className="mx-auto max-w-2xl text-center">
-          <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
-            A gym that answers back
-          </h2>
-          <p className="mt-3 text-slate-400">
-            Everything below is enforced on our server, not just shown in the app.
-          </p>
-        </div>
-
-        <div className="mt-12 grid gap-6 sm:grid-cols-2">
-          {FEATURES.map(({ icon: Icon, title, body }) => (
-            <div key={title} className="flex gap-4">
-              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-ink-700 bg-ink-850 text-volt-400">
-                <Icon className="h-5 w-5" aria-hidden />
-              </span>
-              <div>
-                <h3 className="font-bold text-white">{title}</h3>
-                <p className="mt-1.5 text-sm leading-relaxed text-slate-400">{body}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="border-t border-ink-800">
-        <div className="mx-auto max-w-4xl px-4 py-20 text-center sm:px-6">
-          <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
-            Your first session is the hardest.
-          </h2>
-          <p className="mx-auto mt-3 max-w-xl text-slate-400">
-            Pick a package, tell FitBot your goal, and walk in on day one already knowing exactly
-            what you are doing.
-          </p>
-          <ButtonLink to={user ? homeFor(user.role) : "/join"} className="mt-8 px-6 py-3">
-            {user ? "Open my dashboard" : "Create my account"}
-            <ArrowRight className="h-4 w-4" aria-hidden />
-          </ButtonLink>
         </div>
       </section>
     </>

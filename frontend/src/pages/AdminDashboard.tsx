@@ -13,6 +13,7 @@ import {
   Users,
 } from "lucide-react";
 
+import { useLanguage } from "../context/LanguageContext";
 import { api, ApiError } from "../lib/api";
 import type { KnowledgeDoc, Overview, Person, Role } from "../lib/api";
 import { longDate, rupees } from "../lib/format";
@@ -21,6 +22,7 @@ import { Alert, Badge, Button, Field, SectionTitle, Spinner, Stat } from "../com
 const DISCIPLINES = ["gym", "yoga", "mma", "reception"];
 
 export default function AdminDashboard() {
+  const { t } = useLanguage();
   const [overview, setOverview] = useState<Overview | null>(null);
   const [people, setPeople] = useState<Person[]>([]);
   const [documents, setDocuments] = useState<KnowledgeDoc[]>([]);
@@ -102,14 +104,16 @@ export default function AdminDashboard() {
   return (
     <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6">
       <div className="flex items-center gap-2.5">
-        <h1 className="text-3xl font-extrabold tracking-tight text-white">Admin console</h1>
+        <h1 className="text-3xl font-extrabold tracking-tight text-white">
+          {t("admin.title", "Admin Console")}
+        </h1>
         <Badge tone="volt">
           <ShieldCheck className="mr-1 h-3 w-3" aria-hidden />
-          Web app only
+          {t("nav.admin", "Admin")}
         </Badge>
       </div>
       <p className="mt-1.5 text-slate-400">
-        Accounts, packages, the timetable and everything FitBot is allowed to quote.
+        {t("admin.subtitle", "Monitor memberships, oversee staff & members, and manage gym knowledge base documents.")}
       </p>
 
       <Link
@@ -121,14 +125,14 @@ export default function AdminDashboard() {
             <Sparkles className="h-5 w-5" aria-hidden />
           </span>
           <span>
-            <span className="block font-bold text-white">Insights</span>
+            <span className="block font-bold text-white">{t("nav.insights", "AI Insights")}</span>
             <span className="block text-sm text-slate-400">
-              Ask the data analyst about your gym, or get recommendations on what to fix next.
+              {t("admin.insightsSubtitle", "Ask questions about gym operations, track real-time analytics, and generate strategic executive reports.")}
             </span>
           </span>
         </span>
         <span className="inline-flex items-center gap-2 rounded-xl border border-ink-600 px-4 py-2.5 text-sm font-semibold text-slate-200">
-          Open
+          {t("packages.getStarted", "Open")}
           <ArrowRight className="h-4 w-4" aria-hidden />
         </span>
       </Link>
@@ -140,19 +144,19 @@ export default function AdminDashboard() {
 
       {overview && (
         <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          <Stat label="Members" value={overview.members} icon={<Users className="h-4 w-4" />} />
+          <Stat label={t("admin.totalMembers", "Total Members")} value={overview.members} icon={<Users className="h-4 w-4" />} />
           <Stat
-            label="Active packages"
+            label={t("admin.activeMemberships", "Active Memberships")}
             value={overview.active_memberships}
             icon={<CalendarCheck className="h-4 w-4" />}
           />
           <Stat
-            label="Revenue"
+            label={t("admin.totalRevenue", "Total Revenue")}
             value={rupees(overview.revenue_paise)}
             icon={<IndianRupee className="h-4 w-4" />}
           />
           <Stat
-            label="Knowledge docs"
+            label={t("admin.knowledgeDocs", "Knowledge Docs")}
             value={documents.length}
             icon={<BookOpen className="h-4 w-4" />}
           />
@@ -161,11 +165,11 @@ export default function AdminDashboard() {
 
       <section className="mt-14">
         <SectionTitle
-          title="Add a member or trainer"
+          title={t("admin.createUser", "Create New User")}
           subtitle="Admin accounts are created only from the server seed script, never from the browser."
         />
         <form onSubmit={createPerson} className="card grid gap-4 p-6 sm:grid-cols-4">
-          <Field label="Full name">
+          <Field label={t("auth.fullName", "Full Name")}>
             <input
               className="input"
               value={fullName}
@@ -174,7 +178,7 @@ export default function AdminDashboard() {
               minLength={2}
             />
           </Field>
-          <Field label="Email">
+          <Field label={t("auth.email", "Email Address")}>
             <input
               className="input"
               type="email"
@@ -183,7 +187,7 @@ export default function AdminDashboard() {
               required
             />
           </Field>
-          <Field label="Temporary password">
+          <Field label={t("auth.password", "Password")}>
             <input
               className="input"
               type="password"
@@ -199,29 +203,29 @@ export default function AdminDashboard() {
               value={newRole}
               onChange={(event) => setNewRole(event.target.value as "member" | "trainer")}
             >
-              <option value="member">Member</option>
-              <option value="trainer">Trainer</option>
+              <option value="member">{t("nav.member", "Member")}</option>
+              <option value="trainer">{t("nav.trainer", "Trainer")}</option>
             </select>
           </Field>
           <div className="sm:col-span-4">
             <Button type="submit" busy={creating}>
               <UserPlus className="h-4 w-4" aria-hidden />
-              Create account
+              {t("admin.createUser", "Create Account")}
             </Button>
           </div>
         </form>
       </section>
 
       <section className="mt-14">
-        <SectionTitle title="All accounts" subtitle={`${people.length} in total.`} />
+        <SectionTitle title={t("admin.manageUsers", "User Management")} subtitle={`${people.length} in total.`} />
         <div className="card overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="border-b border-ink-700 text-xs uppercase tracking-wider text-slate-500">
               <tr>
-                <th className="px-5 py-3.5 font-medium">Name</th>
+                <th className="px-5 py-3.5 font-medium">{t("auth.fullName", "Name")}</th>
                 <th className="px-5 py-3.5 font-medium">Role</th>
-                <th className="px-5 py-3.5 font-medium">Package</th>
-                <th className="px-5 py-3.5 font-medium">Trainer</th>
+                <th className="px-5 py-3.5 font-medium">{t("member.activePackage", "Package")}</th>
+                <th className="px-5 py-3.5 font-medium">{t("nav.trainer", "Trainer")}</th>
                 <th className="px-5 py-3.5 font-medium">Status</th>
               </tr>
             </thead>
@@ -237,8 +241,6 @@ export default function AdminDashboard() {
                       className="rounded-lg border border-ink-700 bg-ink-900 px-2.5 py-1.5 text-xs text-slate-200"
                       value={person.role}
                       onChange={(event) => {
-                        // Read the value now: this select is controlled, so React resets the
-                        // DOM node back to the old role before the async callback resumes.
                         const role = event.target.value as Role;
                         void run(async () => {
                           await api.changeRole(person.id, role);
@@ -246,9 +248,9 @@ export default function AdminDashboard() {
                         });
                       }}
                     >
-                      <option value="member">member</option>
-                      <option value="trainer">trainer</option>
-                      <option value="admin">admin</option>
+                      <option value="member">{t("nav.member", "member")}</option>
+                      <option value="trainer">{t("nav.trainer", "trainer")}</option>
+                      <option value="admin">{t("nav.admin", "admin")}</option>
                     </select>
                   </td>
                   <td className="px-5 py-4 text-slate-300">
@@ -256,7 +258,7 @@ export default function AdminDashboard() {
                       <>
                         {person.plan_name}
                         <span className="block text-xs text-slate-500">
-                          until {longDate(person.expires_on)}
+                          {t("member.validUntil", "until")} {longDate(person.expires_on)}
                         </span>
                       </>
                     ) : (
@@ -277,7 +279,7 @@ export default function AdminDashboard() {
                           });
                         }}
                       >
-                        <option value="">Assign…</option>
+                        <option value="">{t("trainer.title", "Assign…")}</option>
                         {trainers.map((trainer) => (
                           <option key={trainer.id} value={trainer.id}>
                             {trainer.full_name}
@@ -311,12 +313,12 @@ export default function AdminDashboard() {
 
       <section className="mt-14">
         <SectionTitle
-          title="FitBot knowledge base"
+          title={t("admin.knowledgeDocs", "Knowledge Base Documents")}
           subtitle="FitBot may only quote these documents. Nothing else reaches a member."
         />
 
         <form onSubmit={upload} className="card grid gap-4 p-6 sm:grid-cols-3">
-          <Field label="PDF file" hint="Up to 20 MB.">
+          <Field label={t("admin.uploadDoc", "Upload Document (PDF)")} hint="Up to 20 MB.">
             <input
               className="input file:mr-3 file:rounded-lg file:border-0 file:bg-ink-700 file:px-3 file:py-1 file:text-slate-200"
               type="file"
@@ -325,7 +327,7 @@ export default function AdminDashboard() {
               required
             />
           </Field>
-          <Field label="Discipline">
+          <Field label={t("admin.docDiscipline", "Discipline Category")}>
             <select
               className="input"
               value={discipline}
@@ -333,7 +335,7 @@ export default function AdminDashboard() {
             >
               {DISCIPLINES.map((item) => (
                 <option key={item} value={item}>
-                  {item}
+                  {item.toUpperCase()}
                 </option>
               ))}
             </select>
@@ -341,7 +343,7 @@ export default function AdminDashboard() {
           <div className="flex items-end">
             <Button type="submit" busy={uploading} disabled={!file}>
               <Upload className="h-4 w-4" aria-hidden />
-              Ingest PDF
+              {t("btn.upload", "Upload")}
             </Button>
           </div>
         </form>

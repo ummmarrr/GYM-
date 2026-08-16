@@ -3,11 +3,13 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { UserPlus } from "lucide-react";
 
 import { homeFor, useAuth } from "../context/AuthContext";
+import { useLanguage } from "../context/LanguageContext";
 import { api, ApiError } from "../lib/api";
 import { Alert, Button, Field } from "../components/ui";
 
 export default function Join() {
   const { signUp } = useAuth();
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const location = useLocation();
   const preselectedPlan = (location.state as { planId?: string } | null)?.planId;
@@ -30,7 +32,6 @@ export default function Join() {
         password,
         phone: phone || undefined,
       });
-      // Coming from the pricing page, finish the job they started.
       if (preselectedPlan) {
         await api.buyPlan(preselectedPlan).catch(() => undefined);
       }
@@ -48,13 +49,15 @@ export default function Join() {
         <span className="grid h-11 w-11 place-items-center rounded-xl bg-volt-400/10 text-volt-400">
           <UserPlus className="h-5 w-5" aria-hidden />
         </span>
-        <h1 className="mt-5 text-2xl font-bold tracking-tight text-white">Join Master GYM</h1>
+        <h1 className="mt-5 text-2xl font-bold tracking-tight text-white">
+          {t("auth.signUpTitle", "Create your account")}
+        </h1>
         <p className="mt-1.5 text-sm text-slate-400">
-          One minute to set up. You can pick a package right after.
+          {t("auth.signUpSubtitle", "Join Master GYM and start your transformation")}
         </p>
 
         <form onSubmit={submit} className="mt-7 space-y-4">
-          <Field label="Full name">
+          <Field label={t("auth.fullName", "Full Name")}>
             <input
               className="input"
               value={fullName}
@@ -66,7 +69,7 @@ export default function Join() {
             />
           </Field>
 
-          <Field label="Email">
+          <Field label={t("auth.email", "Email Address")}>
             <input
               className="input"
               type="email"
@@ -77,7 +80,7 @@ export default function Join() {
             />
           </Field>
 
-          <Field label="Phone" hint="Optional, used only for class reminders.">
+          <Field label={t("auth.phone", "Phone Number (optional)")}>
             <input
               className="input"
               value={phone}
@@ -86,7 +89,7 @@ export default function Join() {
             />
           </Field>
 
-          <Field label="Password" hint="At least 8 characters.">
+          <Field label={t("auth.password", "Password")}>
             <input
               className="input"
               type="password"
@@ -101,14 +104,14 @@ export default function Join() {
           <Alert kind="error" message={error} />
 
           <Button type="submit" busy={busy} className="w-full">
-            Create account
+            {t("auth.submitSignUp", "Create Account")}
           </Button>
         </form>
 
         <p className="mt-6 text-center text-sm text-slate-400">
-          Already a member?{" "}
+          {t("auth.hasAccount", "Already have an account?")}{" "}
           <Link to="/login" className="font-semibold text-volt-400 hover:underline">
-            Sign in
+            {t("nav.signIn", "Sign in")}
           </Link>
         </p>
       </div>
