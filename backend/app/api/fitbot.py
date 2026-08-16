@@ -127,6 +127,7 @@ def chat(
             "entitlements": _describe_entitlements(db, user),
             "profile": _describe_profile(db, user),
             "scripted": scripted or "",
+            "language": payload.language,
             "db": db,
         }
     )

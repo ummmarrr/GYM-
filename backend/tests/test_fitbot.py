@@ -135,3 +135,27 @@ def test_the_transcript_is_only_readable_by_its_owner(client, member, trainer):
         f"/api/fitbot/conversations/{conversation_id}", headers=auth_header(client, trainer.email)
     )
     assert other.status_code == 404
+
+
+@pytest.mark.parametrize("lang", ["hi", "ur", "bn", "mr", "ta", "en"])
+def test_multilingual_chat_request(client, lang):
+    response = client.post(
+        "/api/fitbot/chat",
+        json={"message": "how do I improve flexibility?", "language": lang},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["answer"]
+    assert body["conversation_id"]
+
+
+def test_build_prompt_includes_language_instruction():
+    from app.agents.workflow import build_prompt
+
+    state = {
+        "message": "tell me a routine",
+        "route": "gym",
+        "language": "hi",
+    }
+    prompt = build_prompt(state, [])
+    assert "Target Language: Reply completely and fluently in Hindi (hi)." in prompt

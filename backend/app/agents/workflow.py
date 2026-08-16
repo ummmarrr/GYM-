@@ -48,7 +48,7 @@ Rules:
   so and offer to connect them to reception.
 - Never ask for a password, OTP or card number.
 - Say what you are unsure about when the documents do not support an answer.
-- Reply in the member's language, including Hindi or Hinglish.
+- Reply in the member's language (including Hindi, Urdu, Bengali, Marathi, Tamil, Hinglish, or English).
 - Coaching answers: brief warm-up, main work with sets and reps, one clear stop condition.
 - Not a member yet and asking about training? Answer helpfully, then mention the fitting package.
 - End with a "Sources:" line only when documents were actually used."""
@@ -199,6 +199,7 @@ class FitBotState(TypedDict, total=False):
     can_personalise: bool
     allowed_disciplines: tuple[str, ...]
     scripted: str
+    language: str
     db: object
     route: str
     safe: bool
@@ -206,6 +207,16 @@ class FitBotState(TypedDict, total=False):
     sources: list[RetrievedChunk]
     action: str
     needs_human_handoff: bool
+
+
+LANGUAGE_NAMES = {
+    "en": "English",
+    "hi": "Hindi",
+    "ur": "Urdu",
+    "bn": "Bengali",
+    "mr": "Marathi",
+    "ta": "Tamil",
+}
 
 
 def _mentions(text: str, terms: tuple[str, ...]) -> bool:
@@ -357,6 +368,12 @@ def build_prompt(state: FitBotState, chunks: list[RetrievedChunk], locked: bool 
             f"Note: their package does not include {route}. Answer generally from your own "
             "knowledge, then mention the package that unlocks our full material."
         )
+
+    target_lang_code = state.get("language", "en")
+    target_lang_name = LANGUAGE_NAMES.get(target_lang_code, "English")
+    if target_lang_code != "en":
+        lines.append(f"Target Language: Reply completely and fluently in {target_lang_name} ({target_lang_code}).")
+
     lines.append(f"Q: {state['message']}")
     return "\n".join(lines)
 

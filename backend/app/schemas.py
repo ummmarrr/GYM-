@@ -210,6 +210,7 @@ class SourceCitation(BaseModel):
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     conversation_id: str | None = None
+    language: str = "en"
 
 
 class ChatResponse(BaseModel):
