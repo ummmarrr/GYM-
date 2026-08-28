@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Master GYM — design preview</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Bebas+Neue&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --ink: #08090c;
+        --ink-2: #0e1015;
+        --ink-3: #161922;
+        --line: rgba(255, 255, 255, 0.08);
+        --text: #ebe7df;
+        --muted: #9a958c;
+        --volt: #c6f24e;
+        --volt-ink: #0a0c08;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        background: var(--ink);
+        color: var(--text);
+        font-family: Archivo, system-ui, sans-serif;
+        line-height: 1.5;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      .note {
+        position: sticky;
+        top: 0;
+        z-index: 60;
+        background: #1a1408;
+        color: #f0d9a0;
+        text-align: center;
+        font-size: 12px;
+        letter-spacing: 0.04em;
+        padding: 8px 12px;
+        border-bottom: 1px solid rgba(240, 217, 160, 0.25);
+      }
+
+      header {
+        position: sticky;
+        top: 33px;
+        z-index: 50;
+        backdrop-filter: blur(16px);
+        background: rgba(8, 9, 12, 0.82);
+        border-bottom: 1px solid var(--line);
+      }
+
+      .nav {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 0 24px;
+        height: 68px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+      }
+
+      .brand {
+        font-family: "Bebas Neue", Impact, sans-serif;
+        font-size: 28px;
+        letter-spacing: 0.12em;
+        line-height: 1;
+      }
+
+      .brand span {
+        color: var(--volt);
+      }
+
+      .links {
+        display: flex;
+        gap: 28px;
+        font-size: 13px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      .links a:hover {
+        color: var(--text);
+      }
+
+      .actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-height: 44px;
+        padding: 0 20px;
+        border-radius: 999px;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        border: 1px solid transparent;
+        transition: 0.2s ease;
+        cursor: pointer;
+      }
+
+      .btn-primary {
+        background: var(--volt);
+        color: var(--volt-ink);
+      }
+
+      .btn-primary:hover {
+        filter: brightness(1.05);
+      }
+
+      .btn-ghost {
+        background: transparent;
+        color: var(--muted);
+      }
+
+      .btn-ghost:hover {
+        color: var(--text);
+      }
+
+      .btn-outline {
+        background: transparent;
+        border-color: rgba(255, 255, 255, 0.22);
+        color: var(--text);
+      }
+
+      .btn-outline:hover {
+        border-color: var(--volt);
+        color: var(--volt);
+      }
+
+      /* Hero: full-bleed atmospheric plane, no inset cards */
+      .hero {
+        position: relative;
+        min-height: calc(100vh - 101px);
+        display: grid;
+        align-items: end;
+        overflow: hidden;
+        isolation: isolate;
+      }
+
+      .hero-bg {
+        position: absolute;
+        inset: 0;
+        z-index: -2;
+        background:
+          linear-gradient(to top, rgba(8, 9, 12, 0.95) 8%, rgba(8, 9, 12, 0.55) 45%, rgba(8, 9, 12, 0.35) 100%),
+          radial-gradient(60% 50% at 75% 40%, rgba(198, 242, 78, 0.12), transparent 60%),
+          url("https://images.unsplash.com/photo-1534438327276-14e5300c3a48?auto=format&fit=crop&w=2400&q=80")
+            center / cover no-repeat;
+      }
+
+      .hero-inner {
+        max-width: 1120px;
+        width: 100%;
+        margin: 0 auto;
+        padding: 72px 24px 80px;
+        animation: rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+
+      .eyebrow {
+        font-size: 12px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 18px;
+      }
+
+      .hero-brand {
+        font-family: "Bebas Neue", Impact, sans-serif;
+        font-size: clamp(64px, 12vw, 120px);
+        letter-spacing: 0.06em;
+        line-height: 0.9;
+        margin: 0 0 18px;
+      }
+
+      .hero-brand span {
+        color: var(--volt);
+      }
+
+      .hero h1 {
+        margin: 0;
+        max-width: 14ch;
+        font-size: clamp(28px, 4vw, 42px);
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        line-height: 1.15;
+      }
+
+      .hero p {
+        margin: 18px 0 0;
+        max-width: 38ch;
+        color: var(--muted);
+        font-size: 17px;
+      }
+
+      .cta-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 32px;
+      }
+
+      .fitbot-hint {
+        margin-top: 20px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      .fitbot-hint strong {
+        color: var(--volt);
+        font-weight: 600;
+      }
+
+      section {
+        padding: 88px 24px;
+      }
+
+      .wrap {
+        max-width: 1120px;
+        margin: 0 auto;
+      }
+
+      .section-head {
+        max-width: 36rem;
+        margin-bottom: 40px;
+      }
+
+      .section-head h2 {
+        margin: 0;
+        font-family: "Bebas Neue", Impact, sans-serif;
+        font-size: clamp(36px, 5vw, 56px);
+        letter-spacing: 0.04em;
+        line-height: 1;
+      }
+
+      .section-head p {
+        margin: 14px 0 0;
+        color: var(--muted);
+        font-size: 16px;
+      }
+
+      .disciplines {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: repeat(3, 1fr);
+      }
+
+      .panel {
+        position: relative;
+        min-height: 340px;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        background: var(--ink-2);
+      }
+
+      .panel::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        opacity: 0.9;
+        transition: transform 0.5s ease;
+      }
+
+      .panel.strength::before {
+        background:
+          linear-gradient(to top, rgba(8, 9, 12, 0.92), rgba(8, 9, 12, 0.25)),
+          url("https://images.unsplash.com/photo-1517836357463-d25dfeac3438?auto=format&fit=crop&w=1400&q=80")
+            center / cover no-repeat;
+      }
+
+      .panel.yoga::before {
+        background:
+          linear-gradient(to top, rgba(8, 9, 12, 0.92), rgba(8, 9, 12, 0.25)),
+          url("https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?auto=format&fit=crop&w=1400&q=80")
+            center / cover no-repeat;
+      }
+
+      .panel.mma::before {
+        background:
+          linear-gradient(to top, rgba(8, 9, 12, 0.92), rgba(8, 9, 12, 0.25)),
+          url("https://images.unsplash.com/photo-1549719386-46bfac73ba2a?auto=format&fit=crop&w=1400&q=80")
+            center / cover no-repeat;
+      }
+
+      .panel:hover::before {
+        transform: scale(1.04);
+      }
+
+      .panel-copy {
+        position: absolute;
+        left: 22px;
+        right: 22px;
+        bottom: 22px;
+      }
+
+      .panel-copy h3 {
+        margin: 0;
+        font-family: "Bebas Neue", Impact, sans-serif;
+        font-size: 34px;
+        letter-spacing: 0.06em;
+      }
+
+      .panel-copy p {
+        margin: 8px 0 0;
+        color: var(--muted);
+        font-size: 14px;
+        max-width: 28ch;
+      }
+
+      .fitbot {
+        border-block: 1px solid var(--line);
+        background: linear-gradient(180deg, var(--ink-2), var(--ink));
+      }
+
+      .fitbot-grid {
+        display: grid;
+        gap: 48px;
+        grid-template-columns: 1.1fr 0.9fr;
+        align-items: center;
+      }
+
+      .fitbot-list {
+        display: grid;
+        gap: 18px;
+      }
+
+      .fitbot-list article {
+        padding-bottom: 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .fitbot-list h3 {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 600;
+      }
+
+      .fitbot-list p {
+        margin: 6px 0 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .chat-preview {
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.02);
+        padding: 22px;
+        min-height: 280px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+
+      .bubble {
+        max-width: 90%;
+        padding: 12px 14px;
+        font-size: 14px;
+        line-height: 1.45;
+      }
+
+      .bubble.user {
+        align-self: flex-end;
+        background: rgba(255, 255, 255, 0.06);
+        border-radius: 16px 16px 4px 16px;
+      }
+
+      .bubble.bot {
+        align-self: flex-start;
+        background: rgba(198, 242, 78, 0.08);
+        border: 1px solid rgba(198, 242, 78, 0.2);
+        border-radius: 16px 16px 16px 4px;
+      }
+
+      .packages {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: repeat(3, 1fr);
+      }
+
+      .tier {
+        padding: 28px 24px;
+        border: 1px solid var(--line);
+        background: var(--ink-2);
+      }
+
+      .tier.featured {
+        border-color: rgba(198, 242, 78, 0.45);
+        background: linear-gradient(180deg, rgba(198, 242, 78, 0.06), transparent 50%),
+          var(--ink-3);
+      }
+
+      .tier .name {
+        font-family: "Bebas Neue", Impact, sans-serif;
+        font-size: 28px;
+        letter-spacing: 0.08em;
+      }
+
+      .tier .price {
+        margin-top: 10px;
+        font-size: 28px;
+        font-weight: 600;
+      }
+
+      .tier .price small {
+        font-size: 13px;
+        color: var(--muted);
+        font-weight: 500;
+      }
+
+      .tier ul {
+        margin: 20px 0 24px;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 10px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .tier ul li::before {
+        content: "—";
+        color: var(--volt);
+        margin-right: 8px;
+      }
+
+      .closing {
+        text-align: center;
+        padding-block: 100px;
+      }
+
+      .closing h2 {
+        margin: 0 auto;
+        max-width: 16ch;
+        font-family: "Bebas Neue", Impact, sans-serif;
+        font-size: clamp(40px, 7vw, 72px);
+        letter-spacing: 0.04em;
+        line-height: 0.95;
+      }
+
+      .closing p {
+        margin: 16px auto 0;
+        max-width: 36ch;
+        color: var(--muted);
+      }
+
+      .closing .cta-row {
+        justify-content: center;
+      }
+
+      footer {
+        border-top: 1px solid var(--line);
+        padding: 28px 24px;
+      }
+
+      .footer-inner {
+        max-width: 1120px;
+        margin: 0 auto;
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(18px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @media (max-width: 900px) {
+        .links {
+          display: none;
+        }
+
+        .disciplines,
+        .packages,
+        .fitbot-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .panel {
+          min-height: 240px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="note">
+      Design preview only — not wired to the React app. Open this file in a browser to review the look.
+    </div>
+
+    <header>
+      <nav class="nav">
+        <a class="brand" href="#">MASTER<span>GYM</span></a>
+        <div class="links">
+          <a href="#">Home</a>
+          <a href="#packages">Packages</a>
+          <a href="#fitbot">FitBot</a>
+        </div>
+        <div class="actions">
+          <a class="btn btn-ghost" href="#">Sign in</a>
+          <a class="btn btn-primary" href="#">Join now</a>
+        </div>
+      </nav>
+    </header>
+
+    <section class="hero">
+      <div class="hero-bg" aria-hidden="true"></div>
+      <div class="hero-inner">
+        <p class="eyebrow">Strength · Yoga · MMA</p>
+        <p class="hero-brand">MASTER<span>GYM</span></p>
+        <h1>Train with intent. Not guesswork.</h1>
+        <p>
+          Real coaches, live class seats, and FitBot — an AI coach that knows your package,
+          your programme, and your limits.
+        </p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="#">Start training</a>
+          <a class="btn btn-outline" href="#packages">See packages</a>
+        </div>
+        <p class="fitbot-hint">Or tap <strong>Ask FitBot</strong> — no account needed to try it.</p>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Three disciplines. One membership.</h2>
+          <p>Mapped to what your package unlocks on the server — not just pretty labels.</p>
+        </div>
+        <div class="disciplines">
+          <article class="panel strength">
+            <div class="panel-copy">
+              <h3>Strength</h3>
+              <p>Progressive overload with programmes written by your assigned trainer.</p>
+            </div>
+          </article>
+          <article class="panel yoga">
+            <div class="panel-copy">
+              <h3>Yoga</h3>
+              <p>Mobility and breathwork that recover what heavy training takes.</p>
+            </div>
+          </article>
+          <article class="panel mma">
+            <div class="panel-copy">
+              <h3>MMA</h3>
+              <p>Striking and grappling fundamentals — unlocked by higher packages.</p>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="fitbot" id="fitbot">
+      <div class="wrap fitbot-grid">
+        <div>
+          <div class="section-head">
+            <h2>FitBot answers when the floor is empty.</h2>
+            <p>
+              Tool-calling coach backed by your gym docs, package filters, and live pricing —
+              the same APIs your app already uses.
+            </p>
+          </div>
+          <div class="fitbot-list">
+            <article>
+              <h3>Knows your entitlements</h3>
+              <p>Quota, expiry, and which disciplines are locked until you upgrade.</p>
+            </article>
+            <article>
+              <h3>Reads gym knowledge</h3>
+              <p>Agentic retrieval over PDFs filtered to the caller’s package.</p>
+            </article>
+            <article>
+              <h3>Safe by default</h3>
+              <p>No medical guesses. Never asks for a password.</p>
+            </article>
+          </div>
+        </div>
+        <div class="chat-preview" aria-label="FitBot sample conversation">
+          <div class="bubble user">What time is evening yoga, and can I book on Starter?</div>
+          <div class="bubble bot">
+            Evening yoga is 7:00–8:00 PM. Starter includes yoga seats this month — I can open
+            booking once you sign in. Want the full timetable?
+          </div>
+          <div class="bubble user">Yes, and what’s locked on Starter?</div>
+          <div class="bubble bot">
+            MMA content stays locked until Complete. Strength + Yoga manuals are readable now.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="packages">
+      <div class="wrap">
+        <div class="section-head">
+          <h2>Packages that match the API.</h2>
+          <p>Preview styling — live prices still load from your backend when we wire this in.</p>
+        </div>
+        <div class="packages">
+          <article class="tier">
+            <div class="name">Starter</div>
+            <div class="price">₹2,999 <small>/ month</small></div>
+            <ul>
+              <li>Strength + Yoga</li>
+              <li>Limited class seats</li>
+              <li>FitBot general coaching</li>
+            </ul>
+            <a class="btn btn-outline" href="#" style="width: 100%">Choose Starter</a>
+          </article>
+          <article class="tier featured">
+            <div class="name">Complete</div>
+            <div class="price">₹4,999 <small>/ month</small></div>
+            <ul>
+              <li>Strength + Yoga + MMA</li>
+              <li>Higher class quota</li>
+              <li>Trainer-written programme</li>
+            </ul>
+            <a class="btn btn-primary" href="#" style="width: 100%">Choose Complete</a>
+          </article>
+          <article class="tier">
+            <div class="name">Elite</div>
+            <div class="price">₹7,999 <small>/ month</small></div>
+            <ul>
+              <li>Full discipline access</li>
+              <li>Priority support</li>
+              <li>Maximum FitBot depth</li>
+            </ul>
+            <a class="btn btn-outline" href="#" style="width: 100%">Choose Elite</a>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="closing">
+      <div class="wrap">
+        <h2>Your first session is the hardest.</h2>
+        <p>Pick a package, tell FitBot your goal, walk in knowing the plan.</p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="#">Create my account</a>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <div class="footer-inner">
+        <div class="brand">MASTER<span>GYM</span></div>
+        <p>Strength · Yoga · MMA — coaches + FitBot.</p>
+      </div>
+    </footer>
+  </body>
+</html>

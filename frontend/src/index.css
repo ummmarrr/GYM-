@@ -2,15 +2,18 @@
 
 @theme {
   --color-ink-950: #08090c;
-  --color-ink-900: #0d0f14;
+  --color-ink-900: #0e1015;
   --color-ink-850: #12151c;
-  --color-ink-800: #171b24;
-  --color-ink-700: #232936;
+  --color-ink-800: #161922;
+  --color-ink-700: #232836;
   --color-ink-600: #333b4d;
+  --color-sand-50: #ebe7df;
+  --color-sand-300: #9a958c;
   --color-volt-400: #c6f24e;
   --color-volt-500: #b0e02e;
   --color-volt-600: #8ab81c;
-  --font-display: "Bebas Neue", "Impact", system-ui, sans-serif;
+  --font-display: "Bebas Neue", Impact, system-ui, sans-serif;
+  --font-sans: "Archivo", ui-sans-serif, system-ui, sans-serif;
 }
 
 @layer base {
@@ -19,15 +22,14 @@
   }
 
   body {
-    @apply bg-ink-950 text-slate-200 antialiased;
-    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    @apply bg-ink-950 text-sand-50 antialiased;
+    font-family: var(--font-sans);
   }
 
   ::selection {
     @apply bg-volt-400 text-ink-950;
   }
 
-  /* A slim scrollbar keeps the dark chrome from being broken up by a bright track. */
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;
@@ -36,7 +38,7 @@
     @apply bg-ink-900;
   }
   ::-webkit-scrollbar-thumb {
-    @apply bg-ink-700 rounded-full;
+    @apply rounded-full bg-ink-700;
   }
   ::-webkit-scrollbar-thumb:hover {
     @apply bg-ink-600;
@@ -45,24 +47,30 @@
 
 @layer components {
   .card {
-    @apply rounded-2xl border border-ink-700/70 bg-ink-850/80 backdrop-blur;
+    @apply border border-white/8 bg-ink-900/90 backdrop-blur;
   }
 
   .input {
-    @apply w-full rounded-xl border border-ink-700 bg-ink-900 px-4 py-2.5 text-sm text-slate-100
-           placeholder:text-slate-500 outline-none transition
-           focus:border-volt-500/60 focus:ring-2 focus:ring-volt-500/20;
+    @apply w-full rounded-full border border-white/10 bg-ink-950 px-4 py-2.5 text-sm text-sand-50
+           placeholder:text-sand-300/60 outline-none transition
+           focus:border-volt-500/50 focus:ring-2 focus:ring-volt-500/15;
   }
 
   .label {
-    @apply mb-1.5 block text-xs font-medium uppercase tracking-wider text-slate-400;
+    @apply mb-1.5 block text-xs font-medium uppercase tracking-[0.14em] text-sand-300;
+  }
+
+  .display {
+    font-family: var(--font-display);
+    letter-spacing: 0.06em;
+    line-height: 0.95;
   }
 }
 
 @keyframes rise {
   from {
     opacity: 0;
-    transform: translateY(12px);
+    transform: translateY(16px);
   }
   to {
     opacity: 1;
@@ -71,7 +79,7 @@
 }
 
 .animate-rise {
-  animation: rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: rise 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @keyframes pop {

@@ -7,16 +7,16 @@ type Variant = "primary" | "ghost" | "outline" | "danger";
 
 const VARIANTS: Record<Variant, string> = {
   primary: "bg-volt-400 text-ink-950 hover:bg-volt-500 focus-visible:outline-volt-400",
-  ghost: "text-slate-300 hover:bg-ink-800 hover:text-white focus-visible:outline-ink-600",
+  ghost: "text-sand-300 hover:bg-ink-800 hover:text-sand-50 focus-visible:outline-ink-600",
   outline:
-    "border border-ink-600 text-slate-200 hover:border-volt-500/60 hover:text-white focus-visible:outline-volt-400",
+    "border border-white/20 text-sand-50 hover:border-volt-400 hover:text-volt-400 focus-visible:outline-volt-400",
   danger: "border border-red-500/40 text-red-300 hover:bg-red-500/10 focus-visible:outline-red-500",
 };
 
-const BASE = `inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold
-  transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2
+const BASE = `inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-[13px] font-semibold
+  uppercase tracking-[0.08em] transition
+  focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2
   disabled:cursor-not-allowed disabled:opacity-50`;
-
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
   busy?: boolean;
@@ -74,7 +74,7 @@ export function Badge({
   tone?: "neutral" | "volt" | "warn" | "danger";
 }) {
   const tones = {
-    neutral: "border-ink-600 bg-ink-800 text-slate-300",
+    neutral: "border-white/10 bg-ink-800 text-sand-300",
     volt: "border-volt-500/40 bg-volt-500/10 text-volt-400",
     warn: "border-amber-500/40 bg-amber-500/10 text-amber-300",
     danger: "border-red-500/40 bg-red-500/10 text-red-300",
@@ -126,7 +126,7 @@ export function Field({
       </label>
       {control}
       {hint && (
-        <p id={hintId} className="mt-1.5 text-xs text-slate-500">
+        <p id={hintId} className="mt-1.5 text-xs text-sand-300/70">
           {hint}
         </p>
       )}
@@ -155,7 +155,7 @@ export function Alert({ kind, message }: { kind: "error" | "success"; message: s
 
 export function Spinner({ label = "Loading" }: { label?: string }) {
   return (
-    <div className="flex items-center justify-center gap-2.5 py-16 text-sm text-slate-400">
+    <div className="flex items-center justify-center gap-2.5 py-16 text-sm text-sand-300">
       <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
       {label}
     </div>
@@ -164,10 +164,10 @@ export function Spinner({ label = "Loading" }: { label?: string }) {
 
 export function EmptyState({ icon, title, body }: { icon: ReactNode; title: string; body: string }) {
   return (
-    <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-ink-700 px-6 py-14 text-center">
-      <div className="text-slate-600">{icon}</div>
-      <p className="font-semibold text-slate-300">{title}</p>
-      <p className="max-w-sm text-sm text-slate-500">{body}</p>
+    <div className="flex flex-col items-center gap-3 border border-dashed border-white/12 px-6 py-14 text-center">
+      <div className="text-sand-300/50">{icon}</div>
+      <p className="font-semibold text-sand-50">{title}</p>
+      <p className="max-w-sm text-sm text-sand-300">{body}</p>
     </div>
   );
 }
@@ -175,8 +175,8 @@ export function EmptyState({ icon, title, body }: { icon: ReactNode; title: stri
 export function SectionTitle({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
     <div className="mb-5">
-      <h2 className="text-xl font-bold tracking-tight text-white">{title}</h2>
-      {subtitle && <p className="mt-1 text-sm text-slate-400">{subtitle}</p>}
+      <h2 className="text-xl font-semibold tracking-tight text-sand-50">{title}</h2>
+      {subtitle && <p className="mt-1 text-sm text-sand-300">{subtitle}</p>}
     </div>
   );
 }
@@ -193,10 +193,10 @@ export function Stat({
   return (
     <div className="card p-5">
       <div className="flex items-center justify-between">
-        <p className="text-xs font-medium uppercase tracking-wider text-slate-400">{label}</p>
+        <p className="text-xs font-medium uppercase tracking-wider text-sand-300">{label}</p>
         <span className="text-volt-400">{icon}</span>
       </div>
-      <p className="mt-2 text-3xl font-bold tracking-tight text-white">{value}</p>
+      <p className="mt-2 text-3xl font-semibold tracking-tight text-sand-50">{value}</p>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Check, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
 
 import { useAuth } from "../context/AuthContext";
 import { api, ApiError } from "../lib/api";
@@ -62,10 +62,10 @@ export default function Packages() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
-      <div className="mx-auto max-w-2xl text-center">
-        <h1 className="text-4xl font-extrabold tracking-tight text-white">Packages</h1>
-        <p className="mt-3 text-slate-400">
+    <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-20">
+      <div className="max-w-xl">
+        <h1 className="display text-[clamp(2.75rem,6vw,4rem)] text-sand-50">Packages</h1>
+        <p className="mt-3 text-sand-300">
           Every limit here is enforced by the server, so what you buy is exactly what you get.
         </p>
         {entitlements?.has_active_membership && (
@@ -83,15 +83,17 @@ export default function Packages() {
       {!plans ? (
         <Spinner label="Loading packages" />
       ) : (
-        <div className="mt-12 grid gap-6 lg:grid-cols-3">
+        <div className="mt-12 grid gap-4 lg:grid-cols-3">
           {plans.map((plan) => {
             const featured = plan.tier === "performance";
             const current = entitlements?.plan_name === plan.name;
             return (
               <div
                 key={plan.id}
-                className={`card relative flex flex-col p-7 transition ${
-                  featured ? "border-volt-500/50 ring-1 ring-volt-500/20" : "hover:border-ink-600"
+                className={`relative flex flex-col border p-7 transition ${
+                  featured
+                    ? "border-volt-400/45 bg-gradient-to-b from-volt-400/10 to-ink-900"
+                    : "border-white/8 bg-ink-900 hover:border-white/16"
                 }`}
               >
                 {featured && (
@@ -103,20 +105,22 @@ export default function Packages() {
                   </span>
                 )}
 
-                <h2 className="text-xl font-bold text-white">{plan.name}</h2>
-                <p className="mt-1.5 min-h-[3rem] text-sm leading-relaxed text-slate-400">
+                <h2 className="display text-[1.75rem] text-sand-50">{plan.name}</h2>
+                <p className="mt-2 min-h-[3rem] text-sm leading-relaxed text-sand-300">
                   {plan.description}
                 </p>
 
-                <p className="mt-5 text-4xl font-extrabold tracking-tight text-white">
+                <p className="mt-5 text-3xl font-semibold tracking-tight text-sand-50">
                   {rupees(plan.price_paise)}
                 </p>
-                <p className="text-sm text-slate-500">for {plan.duration_days} days</p>
+                <p className="text-sm text-sand-300">for {plan.duration_days} days</p>
 
                 <ul className="mt-6 flex-1 space-y-2.5">
                   {perks(plan).map((perk) => (
-                    <li key={perk} className="flex items-start gap-2.5 text-sm text-slate-300">
-                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-volt-400" aria-hidden />
+                    <li key={perk} className="flex items-start gap-2.5 text-sm text-sand-300">
+                      <span className="text-volt-400" aria-hidden>
+                        —
+                      </span>
                       {perk}
                     </li>
                   ))}
@@ -137,7 +141,7 @@ export default function Packages() {
         </div>
       )}
 
-      <p className="mt-10 text-center text-xs text-slate-500">
+      <p className="mt-10 text-center text-xs text-sand-300/70">
         Payments are simulated in this build. No card details are collected anywhere in the app.
       </p>
     </div>

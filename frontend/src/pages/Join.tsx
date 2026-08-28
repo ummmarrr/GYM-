@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { UserPlus } from "lucide-react";
 
 import { homeFor, useAuth } from "../context/AuthContext";
 import { api, ApiError } from "../lib/api";
+import { MEDIA } from "../lib/media";
 import { Alert, Button, Field } from "../components/ui";
 
 export default function Join() {
@@ -30,7 +30,6 @@ export default function Join() {
         password,
         phone: phone || undefined,
       });
-      // Coming from the pricing page, finish the job they started.
       if (preselectedPlan) {
         await api.buyPlan(preselectedPlan).catch(() => undefined);
       }
@@ -43,74 +42,85 @@ export default function Join() {
   };
 
   return (
-    <div className="mx-auto flex max-w-md flex-col justify-center px-4 py-20 sm:px-6">
-      <div className="card animate-rise p-8">
-        <span className="grid h-11 w-11 place-items-center rounded-xl bg-volt-400/10 text-volt-400">
-          <UserPlus className="h-5 w-5" aria-hidden />
-        </span>
-        <h1 className="mt-5 text-2xl font-bold tracking-tight text-white">Join Master GYM</h1>
-        <p className="mt-1.5 text-sm text-slate-400">
-          One minute to set up. You can pick a package right after.
-        </p>
+    <div className="relative isolate min-h-[calc(100vh-68px)] overflow-hidden">
+      <img
+        src={MEDIA.strength}
+        alt=""
+        className="absolute inset-0 -z-20 h-full w-full object-cover"
+      />
+      <div aria-hidden className="absolute inset-0 -z-10 bg-ink-950/82" />
 
-        <form onSubmit={submit} className="mt-7 space-y-4">
-          <Field label="Full name">
-            <input
-              className="input"
-              value={fullName}
-              onChange={(event) => setFullName(event.target.value)}
-              required
-              minLength={2}
-              autoComplete="name"
-              autoFocus
-            />
-          </Field>
+      <div className="mx-auto flex max-w-md flex-col justify-center px-4 py-16 sm:px-6 sm:py-20">
+        <div className="card animate-rise border-white/10 p-8">
+          <p className="display text-3xl text-sand-50">
+            MASTER<span className="text-volt-400">GYM</span>
+          </p>
+          <h1 className="mt-4 text-2xl font-semibold tracking-tight text-sand-50">
+            Join Master GYM
+          </h1>
+          <p className="mt-1.5 text-sm text-sand-300">
+            One minute to set up. You can pick a package right after.
+          </p>
 
-          <Field label="Email">
-            <input
-              className="input"
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              required
-              autoComplete="email"
-            />
-          </Field>
+          <form onSubmit={submit} className="mt-7 space-y-4">
+            <Field label="Full name">
+              <input
+                className="input"
+                value={fullName}
+                onChange={(event) => setFullName(event.target.value)}
+                required
+                minLength={2}
+                autoComplete="name"
+                autoFocus
+              />
+            </Field>
 
-          <Field label="Phone" hint="Optional, used only for class reminders.">
-            <input
-              className="input"
-              value={phone}
-              onChange={(event) => setPhone(event.target.value)}
-              autoComplete="tel"
-            />
-          </Field>
+            <Field label="Email">
+              <input
+                className="input"
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                required
+                autoComplete="email"
+              />
+            </Field>
 
-          <Field label="Password" hint="At least 8 characters.">
-            <input
-              className="input"
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              required
-              minLength={8}
-              autoComplete="new-password"
-            />
-          </Field>
+            <Field label="Phone" hint="Optional, used only for class reminders.">
+              <input
+                className="input"
+                value={phone}
+                onChange={(event) => setPhone(event.target.value)}
+                autoComplete="tel"
+              />
+            </Field>
 
-          <Alert kind="error" message={error} />
+            <Field label="Password" hint="At least 8 characters.">
+              <input
+                className="input"
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                required
+                minLength={8}
+                autoComplete="new-password"
+              />
+            </Field>
 
-          <Button type="submit" busy={busy} className="w-full">
-            Create account
-          </Button>
-        </form>
+            <Alert kind="error" message={error} />
 
-        <p className="mt-6 text-center text-sm text-slate-400">
-          Already a member?{" "}
-          <Link to="/login" className="font-semibold text-volt-400 hover:underline">
-            Sign in
-          </Link>
-        </p>
+            <Button type="submit" busy={busy} className="w-full">
+              Create account
+            </Button>
+          </form>
+
+          <p className="mt-6 text-center text-sm text-sand-300">
+            Already a member?{" "}
+            <Link to="/login" className="font-semibold text-volt-400 hover:underline">
+              Sign in
+            </Link>
+          </p>
+        </div>
       </div>
     </div>
   );
