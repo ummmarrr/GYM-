@@ -690,6 +690,16 @@ click to bring back. That is what I would do if you needed a pause rather than a
 
 ---
 
+# Part 9 — MCP (local only, not part of the hosted deploy)
+
+The backend ships two Model Context Protocol servers (`app/mcp_server.py`, `app/mcp_admin.py`).
+They run on **your laptop** via stdio for Cursor / Claude Desktop. They are **not** deployed on
+Render. Wire them only on a machine you control; use the same `DATABASE_URL` and `JWT_SECRET`
+as the API. Admin Copilot MCP requires `admin_login` then a `session_token` — never put the
+password on every question. Details: [backend/BACKEND.md](backend/BACKEND.md).
+
+---
+
 ## Related documents
 
 - [README.md](README.md) — what the project is and how to run it locally

@@ -15,10 +15,11 @@ settings = get_settings()
 def no_model(monkeypatch):
     """Answer instantly without a provider, so these tests measure the limiter alone."""
     monkeypatch.setattr(
-        "app.agents.workflow._retrieve", lambda message, route, disciplines, db: []
+        "app.services.llm.LLMChain.generate", lambda self, system, user: LLMResult("Sure.")
     )
     monkeypatch.setattr(
-        "app.services.llm.LLMChain.generate", lambda self, system, user: LLMResult("Sure.")
+        "app.services.llm.LLMChain.generate_with_tools",
+        lambda self, system, prompt, tools, execute, max_rounds=4: LLMResult("Sure."),
     )
 
 

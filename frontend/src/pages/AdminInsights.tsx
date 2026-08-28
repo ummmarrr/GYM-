@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import {
   ArrowUp,
   BarChart3,
+  Bot,
   ChevronLeft,
   Compass,
   Lightbulb,
@@ -12,15 +13,48 @@ import {
 } from "lucide-react";
 
 import { api, ApiError } from "../lib/api";
-import type { AdvisorReport, MetricTable, Priority, Recommendation } from "../lib/api";
+import type {
+  AdvisorReport,
+  CopilotAnswer,
+  MetricTable,
+  Priority,
+  Recommendation,
+} from "../lib/api";
 import { Alert, Badge, Button, SectionTitle, Spinner } from "../components/ui";
 
-const SUGGESTIONS = [
+const ANALYST_SUGGESTIONS = [
   "How much revenue have we made?",
   "Whose membership expires soon?",
   "Are our classes filling up?",
   "Which members have gone quiet?",
   "How is each trainer loaded?",
+];
+
+const COPILOT_SUGGESTIONS = [
+  {
+    label: "Data",
+    question: "How much revenue have we made this period?",
+  },
+  {
+    label: "Data",
+    question: "Whose membership expires soon?",
+  },
+  {
+    label: "Advice",
+    question: "What needs my attention this week?",
+  },
+  {
+    label: "Advice",
+    question: "Give me the owner's briefing.",
+  },
+  {
+    label: "Both",
+    question: "Why might members be leaving and what should I do?",
+  },
+  {
+    label: "Both",
+    question: "Summarise revenue risk and the top actions I should take.",
+  },
 ];
 
 const PRIORITY_TONE: Record<Priority, "danger" | "warn" | "neutral"> = {
@@ -29,11 +63,20 @@ const PRIORITY_TONE: Record<Priority, "danger" | "warn" | "neutral"> = {
   low: "neutral",
 };
 
-interface Turn {
+interface AnalystTurn {
   id: number;
   question: string;
   answer: string;
   metrics: MetricTable[];
+}
+
+interface CopilotTurn {
+  id: number;
+  question: string;
+  answer: string;
+  agents_used: string[];
+  metrics: MetricTable[];
+  recommendations: Recommendation[];
 }
 
 function MetricGrid({ metric }: { metric: MetricTable }) {
@@ -105,14 +148,20 @@ function RecommendationCard({ item }: { item: Recommendation }) {
 }
 
 export default function AdminInsights() {
-  const [tab, setTab] = useState<"analyst" | "advisor">("analyst");
+  const [tab, setTab] = useState<"copilot" | "analyst" | "advisor">("copilot");
 
-  const [turns, setTurns] = useState<Turn[]>([]);
+  const [turns, setTurns] = useState<AnalystTurn[]>([]);
   const [draft, setDraft] = useState("");
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState("");
   const nextId = useRef(1);
   const endRef = useRef<HTMLDivElement>(null);
+
+  const [copilotTurns, setCopilotTurns] = useState<CopilotTurn[]>([]);
+  const [copilotDraft, setCopilotDraft] = useState("");
+  const [askingCopilot, setAskingCopilot] = useState(false);
+  const copilotEndRef = useRef<HTMLDivElement>(null);
+  const copilotNextId = useRef(1);
 
   const [report, setReport] = useState<AdvisorReport | null>(null);
   const [loadingReport, setLoadingReport] = useState(false);
@@ -129,6 +178,10 @@ export default function AdminInsights() {
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [turns, asking]);
+
+  useEffect(() => {
+    copilotEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [copilotTurns, askingCopilot]);
 
   const loadReport = useCallback(async () => {
     setLoadingReport(true);
@@ -170,6 +223,34 @@ export default function AdminInsights() {
     }
   };
 
+  const askCopilot = async (question: string) => {
+    const trimmed = question.trim();
+    if (!trimmed || askingCopilot) return;
+    setCopilotDraft("");
+    setAskingCopilot(true);
+    setError("");
+    try {
+      const result: CopilotAnswer = await api.askCopilot(trimmed);
+      setCopilotTurns((current) => [
+        ...current,
+        {
+          id: copilotNextId.current++,
+          question: trimmed,
+          answer: result.answer,
+          agents_used: result.agents_used,
+          metrics: result.metrics,
+          recommendations: result.recommendations,
+        },
+      ]);
+    } catch (caught) {
+      setError(
+        caught instanceof ApiError ? caught.message : "The copilot could not answer that.",
+      );
+    } finally {
+      setAskingCopilot(false);
+    }
+  };
+
   return (
     <div className="mx-auto max-w-5xl px-4 py-12 sm:px-6">
       <Link
@@ -188,13 +269,14 @@ export default function AdminInsights() {
         </Badge>
       </div>
       <p className="mt-1.5 max-w-2xl text-slate-400">
-        Two agents over your live gym data. Both read from vetted queries only, so every number
-        here comes from the database rather than from the model.
+        Three admin agents over your live gym data. Copilot routes a question to DataAgent,
+        AdvisorAgent, or both. Every number still comes from vetted queries, not inventing.
       </p>
 
-      <div className="mt-7 flex gap-2 border-b border-ink-800">
+      <div className="mt-7 flex flex-wrap gap-2 border-b border-ink-800">
         {(
           [
+            { id: "copilot", label: "Copilot", icon: Bot },
             { id: "analyst", label: "Data analyst", icon: BarChart3 },
             { id: "advisor", label: "Advisor", icon: Compass },
           ] as const
@@ -218,7 +300,149 @@ export default function AdminInsights() {
         <Alert kind="error" message={error} />
       </div>
 
-      {tab === "analyst" ? (
+      {tab === "copilot" ? (
+        <section className="mt-6">
+          {copilotTurns.length === 0 && !askingCopilot && (
+            <div className="card p-6">
+              <div className="flex items-center gap-2.5">
+                <span className="grid h-10 w-10 place-items-center rounded-xl bg-volt-400/10 text-volt-400">
+                  <Bot className="h-5 w-5" aria-hidden />
+                </span>
+                <div>
+                  <p className="font-bold text-white">Ask the multi-agent Copilot</p>
+                  <p className="text-sm text-slate-400">
+                    One box. It picks DataAgent, AdvisorAgent, or both — then combines the answer.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-3 text-sm text-slate-400 sm:grid-cols-3">
+                <div className="rounded-xl border border-ink-700 bg-ink-950/50 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-volt-400">
+                    DataAgent
+                  </p>
+                  <p className="mt-1.5 leading-relaxed">
+                    Numbers: revenue, renewals, class fill, trainer load, quiet members.
+                  </p>
+                </div>
+                <div className="rounded-xl border border-ink-700 bg-ink-950/50 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-volt-400">
+                    AdvisorAgent
+                  </p>
+                  <p className="mt-1.5 leading-relaxed">
+                    Prioritised actions with evidence — what to do next and why.
+                  </p>
+                </div>
+                <div className="rounded-xl border border-ink-700 bg-ink-950/50 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-volt-400">
+                    Both
+                  </p>
+                  <p className="mt-1.5 leading-relaxed">
+                    Compound questions like “why is X happening and what should I do?”
+                  </p>
+                </div>
+              </div>
+
+              <p className="mt-5 text-xs leading-relaxed text-slate-500">
+                Try a sample below, or type your own. Labels show which specialist(s) the question
+                usually hits.
+              </p>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                {COPILOT_SUGGESTIONS.map((suggestion) => (
+                  <button
+                    key={suggestion.question}
+                    onClick={() => void askCopilot(suggestion.question)}
+                    className="rounded-full border border-ink-700 px-3.5 py-2 text-xs text-slate-300 transition hover:border-volt-500/50 hover:text-white"
+                  >
+                    <span className="mr-1.5 text-volt-400">{suggestion.label}</span>
+                    {suggestion.question}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-6">
+            {copilotTurns.map((turn) => (
+              <div key={turn.id} className="space-y-3">
+                <div className="flex justify-end">
+                  <p className="max-w-[80%] rounded-2xl bg-volt-400 px-4 py-2.5 text-sm font-medium text-ink-950">
+                    {turn.question}
+                  </p>
+                </div>
+
+                <div className="card p-5">
+                  {turn.agents_used.length > 0 && (
+                    <div className="mb-3 flex flex-wrap gap-1.5">
+                      {turn.agents_used.map((agent) => (
+                        <Badge key={agent} tone="volt">
+                          {agent}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-200">
+                    {turn.answer}
+                  </p>
+
+                  {turn.metrics.length > 0 && (
+                    <div className="mt-5 space-y-3">
+                      <p className="text-xs uppercase tracking-wider text-slate-500">
+                        DataAgent tables
+                      </p>
+                      {turn.metrics.map((metric) => (
+                        <MetricGrid key={metric.key} metric={metric} />
+                      ))}
+                    </div>
+                  )}
+
+                  {turn.recommendations.length > 0 && (
+                    <div className="mt-5 space-y-3">
+                      <p className="text-xs uppercase tracking-wider text-slate-500">
+                        Advisor recommendations
+                      </p>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        {turn.recommendations.map((item) => (
+                          <RecommendationCard key={item.title} item={item} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+
+            {askingCopilot && <Spinner label="Routing to specialist agents" />}
+            <div ref={copilotEndRef} />
+          </div>
+
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void askCopilot(copilotDraft);
+            }}
+            className="sticky bottom-4 mt-6 flex items-center gap-2 rounded-2xl border border-ink-700 bg-ink-900/95 p-2.5 backdrop-blur"
+          >
+            <input
+              className="input flex-1 border-0 bg-transparent focus:ring-0"
+              value={copilotDraft}
+              onChange={(event) => setCopilotDraft(event.target.value)}
+              placeholder="Ask the Copilot — data, advice, or both…"
+              maxLength={500}
+              aria-label="Question for the multi-agent copilot"
+            />
+            <Button
+              type="submit"
+              disabled={!copilotDraft.trim() || askingCopilot}
+              aria-label="Ask copilot"
+              className="px-3"
+            >
+              <ArrowUp className="h-4 w-4" aria-hidden />
+            </Button>
+          </form>
+        </section>
+      ) : tab === "analyst" ? (
         <section className="mt-6">
           {turns.length === 0 && !asking && (
             <div className="card p-6">
@@ -242,7 +466,7 @@ export default function AdminInsights() {
               )}
 
               <div className="mt-5 flex flex-wrap gap-2">
-                {SUGGESTIONS.map((suggestion) => (
+                {ANALYST_SUGGESTIONS.map((suggestion) => (
                   <button
                     key={suggestion}
                     onClick={() => void ask(suggestion)}

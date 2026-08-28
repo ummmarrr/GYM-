@@ -1,8 +1,9 @@
 """FitBot: the Master GYM conversational assistant.
 
-The graph is deliberately explicit. Safety is checked before anything else, then a triage
-node decides whether the request can be answered at all (auth needed, package does not
-cover it) before we spend a model call.
+The graph is deliberately explicit. Safety is checked before anything else — that branch
+never calls a model, so it cannot be prompt-injected. Auth and upgrade prompts stay as
+code too. Everything else is a tool-calling agent: the model decides whether to fetch
+prices, the timetable, entitlements or documents.
 """
 
 import logging
@@ -10,42 +11,32 @@ from typing import TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
+from app.agents.tools import FITBOT_TOOLS, ToolContext, execute_fitbot_tool
+from app.services.gym_ops import KNOWN_DISCIPLINES, retrieve_chunks
+from app.services.gym_ops import readable_disciplines as readable_disciplines
 from app.services.llm import get_llm
-from app.services.rag import KnowledgeBase, RetrievedChunk
+from app.services.rag import RetrievedChunk
 
 logger = logging.getLogger(__name__)
 
 BOT_NAME = "FitBot"
 
-# Prompt budget. The free Gemini tier caps tokens per minute and per day as well as requests,
-# so a smaller prompt directly buys more conversations before the quota runs out.
-CHUNK_CHAR_BUDGET = 500
-CONTEXT_CHAR_BUDGET = 1500
-RETRIEVAL_LIMIT = 3
-
 COACHING_ROUTES = frozenset({"gym", "yoga", "mma"})
 ACCOUNT_ROUTES = frozenset({"account", "reception"})
-KNOWN_DISCIPLINES = frozenset({"gym", "yoga", "mma", "reception"})
 
-# Everyone may read front-of-house material, whatever they have paid. The rest of the ladder
-# comes from the package's own allowed_disciplines: gym, then yoga, then mma.
-PUBLIC_DISCIPLINES = ("reception",)
-
-
-def readable_disciplines(allowed: tuple[str, ...] | None) -> tuple[str, ...]:
-    """Which document shelves this caller may draw on."""
-    return tuple(sorted({*PUBLIC_DISCIPLINES, *(allowed or ())}))
-
-# Every token here is resent on each call, so the wording is deliberately terse. The
-# per-call prompt in respond() must not repeat any of these instructions.
 SYSTEM_PROMPT = f"""You are {BOT_NAME} at Master GYM, acting as receptionist, gym trainer,
 yoga coach or MMA coach as the question requires. Be warm, concrete and brief: specific sets,
 reps, holds and progressions rather than vague encouragement.
 
+Tools:
+- get_pricing / get_timetable: live facts from the database. Never invent prices or times.
+- search_knowledge: gym PDFs, already filtered to this caller's package.
+- check_entitlement: the signed-in caller's package, quota and expiry.
+- request_login / request_signup: show a real form in the chat. Never ask for a password.
+
 Rules:
 - No diagnosis, no medication, no extreme dieting or water cuts, no unsupervised sparring.
-- Never invent prices, class timings or account details. If a fact is not in the context, say
-  so and offer to connect them to reception.
+- If a tool says a discipline is LOCKED, answer from general knowledge, then name the upgrade.
 - Never ask for a password, OTP or card number.
 - Say what you are unsure about when the documents do not support an answer.
 - Reply in the member's language, including Hindi or Hinglish.
@@ -198,7 +189,6 @@ class FitBotState(TypedDict, total=False):
     is_authenticated: bool
     can_personalise: bool
     allowed_disciplines: tuple[str, ...]
-    scripted: str
     db: object
     route: str
     safe: bool
@@ -273,12 +263,6 @@ def triage(state: FitBotState) -> FitBotState:
     ):
         return {"route": "account", "answer": UPGRADE_PROMPT, "action": "upgrade", "sources": []}
 
-    # Prices and timings were read from the database before the graph ran, so there is nothing
-    # left for the model to add.
-    scripted = state.get("scripted")
-    if scripted:
-        return {"route": "reception", "answer": scripted, "action": "none", "sources": []}
-
     return {"route": route, "action": "none"}
 
 
@@ -292,45 +276,18 @@ def route_after_triage(state: FitBotState) -> str:
 
 
 def _retrieve(message: str, route: str, disciplines: tuple[str, ...], db) -> list[RetrievedChunk]:
+    """Kept as a thin wrapper so existing tests still patch workflow._retrieve."""
     discipline = route if route in KNOWN_DISCIPLINES else "reception"
-    # The package decides which shelves are readable; the question decides which one to read.
-    if discipline not in disciplines:
-        return []
-    try:
-        return KnowledgeBase(db).retrieve(message, (discipline,), limit=RETRIEVAL_LIMIT)
-    except Exception:
-        # The assistant must keep working even if retrieval is unavailable.
-        logger.exception("Retrieval failed, answering without documents")
-        return []
+    return retrieve_chunks(db, message, discipline, disciplines)
 
 
-def _clip(text: str, limit: int) -> str:
-    text = text.strip()
-    return text if len(text) <= limit else f"{text[:limit].rstrip()}…"
-
-
-def _context(chunks: list[RetrievedChunk]) -> str:
-    """Render retrieved chunks inside a character budget.
-
-    Chunks are stored at 1200 characters, so passing four of them verbatim costs more than
-    every other part of the prompt combined. The head of a chunk carries the match.
-    """
-    parts: list[str] = []
-    used = 0
-    for chunk in chunks:
-        text = _clip(chunk.text, CHUNK_CHAR_BUDGET)
-        if used + len(text) > CONTEXT_CHAR_BUDGET:
-            break
-        parts.append(f"[{chunk.source} p{chunk.page or '?'}] {text}")
-        used += len(text)
-    return "\n".join(parts) or "none matched"
-
-
-def build_prompt(state: FitBotState, chunks: list[RetrievedChunk], locked: bool = False) -> str:
+def build_prompt(state: FitBotState) -> str:
     """Assemble the smallest prompt that still answers this particular question.
 
     Membership details are irrelevant to a squat-technique question and a fitness profile is
     irrelevant to an opening-hours question, so neither is sent unless the route needs it.
+    The model fetches prices, times and documents through tools instead of having them
+    stuffed into this prompt up front.
     """
     route = state.get("route", "gym")
     lines = [f"Desk: {route}"]
@@ -351,29 +308,34 @@ def build_prompt(state: FitBotState, chunks: list[RetrievedChunk], locked: bool 
     if history:
         lines.append(f"Earlier:\n{history}")
 
-    lines.append(f"Docs: {_context(chunks)}")
-    if locked:
-        lines.append(
-            f"Note: their package does not include {route}. Answer generally from your own "
-            "knowledge, then mention the package that unlocks our full material."
-        )
     lines.append(f"Q: {state['message']}")
     return "\n".join(lines)
 
 
 def respond(state: FitBotState) -> FitBotState:
-    route = state.get("route", "gym")
-    disciplines = readable_disciplines(state.get("allowed_disciplines"))
-    chunks = _retrieve(state["message"], route, disciplines, state.get("db"))
-    locked = route in COACHING_ROUTES and route not in disciplines
-    prompt = build_prompt(state, chunks, locked=locked)
+    ctx = ToolContext(
+        db=state.get("db"),
+        entitlements=state.get("entitlements") or "",
+        is_authenticated=bool(state.get("is_authenticated")),
+        allowed_disciplines=state.get("allowed_disciplines") or (),
+    )
+    prompt = build_prompt(state)
     logger.info(
         "FitBot call: route=%s prompt=~%d tokens",
         state.get("route", "gym"),
         (len(SYSTEM_PROMPT) + len(prompt)) // 4,
     )
-    result = get_llm().generate(SYSTEM_PROMPT, prompt)
-    return {"answer": result.text, "sources": chunks, "action": "none"}
+    result = get_llm().generate_with_tools(
+        SYSTEM_PROMPT,
+        prompt,
+        FITBOT_TOOLS,
+        lambda name, arguments: execute_fitbot_tool(name, arguments, ctx),
+    )
+    return {
+        "answer": result.text,
+        "sources": ctx.sources,
+        "action": ctx.action,
+    }
 
 
 def build_workflow():

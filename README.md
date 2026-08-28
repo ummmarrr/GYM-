@@ -10,9 +10,10 @@ can actually do is decided by the package they bought, and that is enforced on t
 
 | Layer | Choice | Why |
 | --- | --- | --- |
-| Agent flow | LangGraph | The safety gate, triage and answering steps are explicit and testable |
+| Agent flow | LangGraph | Safety and auth stay as code branches; the rest is tool-calling |
+| Tools / MCP | Shared `gym_ops` + two MCP servers | FitBot and Cursor clients call the same operations |
 | LLM | Gemini, falling back to Groq | Two free tiers in sequence outlast either one alone |
-| Retrieval | pgvector + PyMuPDF | Embeddings sit beside the data, so one query filters and ranks |
+| Retrieval | pgvector + agentic retry | Filter by package in SQL; weak hits get one reformulated pass |
 | API | FastAPI + SQLAlchemy | SQLite locally, Postgres when hosted — same models either way |
 | Auth | Argon2 password hashing + JWT | Argon2 is the current recommendation for passwords |
 | Web app | React + Vite + Tailwind v4 | Fast dev loop, no UI library to fight |
@@ -21,23 +22,25 @@ can actually do is decided by the package they bought, and that is enforced on t
 
 ```
 U/
-├── backend/          # FastAPI app, agent, tests — fully self-contained
+├── backend/          # FastAPI app, agents, MCP servers, tests
 │   ├── app/
-│   │   ├── agents/       # LangGraph workflows: fitbot, analyst, advisor
+│   │   ├── agents/       # FitBot, DataAgent, AdvisorAgent, Copilot orchestrator
 │   │   ├── api/          # auth, membership, people, fitbot, knowledge, intelligence
 │   │   ├── core/         # settings and security primitives
-│   │   ├── services/     # llm, rag, entitlements, analytics, insights
-│   │   ├── db.py         # SQLAlchemy models
-│   │   └── schemas.py    # Pydantic request/response models
-│   ├── scripts/seed.py   # creates the first admin
-│   └── tests/            # 139 tests, no network calls
-└── frontend/         # React app — fully self-contained
-    ├── e2e/              # 45 Playwright browser tests
+│   │   ├── services/     # llm, rag, gym_ops, entitlements, analytics, insights
+│   │   ├── mcp_server.py # public gym tools for any MCP client
+│   │   ├── mcp_admin.py  # admin-only Copilot MCP (login → session token)
+│   │   ├── db.py
+│   │   └── schemas.py
+│   ├── scripts/seed.py
+│   └── tests/            # 186 tests, no network calls
+└── frontend/
+    ├── e2e/              # 46 Playwright browser tests
     └── src/
-        ├── components/   # Layout, FitBotWidget, route guard, UI primitives
-        ├── context/      # auth state
-        ├── lib/          # typed API client
-        └── pages/        # landing, packages, auth, three dashboards
+        ├── components/
+        ├── context/
+        ├── lib/
+        └── pages/        # landing, packages, auth, dashboards, Insights (3 tabs)
 ```
 
 ## Setting up on a new machine
@@ -118,8 +121,8 @@ those members, and manages the class timetable.
 
 **Admin** — signs in through the web app only. Creates members and trainers, changes roles,
 assigns trainers to members, activates or deactivates accounts, controls the knowledge base by
-uploading and removing the PDFs FitBot is allowed to quote, and has the two analysis agents
-described below.
+uploading and removing the PDFs FitBot is allowed to quote, and has the Insights agents
+described below (DataAgent, AdvisorAgent, and the Copilot that orchestrates both).
 
 ## How FitBot behaves
 
@@ -129,14 +132,13 @@ described below.
 2. **Triage before spending a model call.** A signed-out visitor asking "when does my plan
    expire?" gets a secure sign-in form rendered inside the chat, not a guess. A member on a
    package without personalised programming gets an upgrade prompt.
-3. **Answer facts from the database, not the model.** Prices and class timings live in
-   `membership_plans` and `class_schedules`, so `app/services/front_desk.py` reads them
-   directly. These are the most common questions a gym site gets, they cost no quota, and the
-   answer is exact — the model is told never to invent a price, so it could not answer well
-   anyway.
-4. **Answer the rest with the gym's own documents.** Retrieval is scoped both to the
-   discipline being asked about and to what the caller's package includes, and answers cite
-   the source PDF and page.
+3. **Tool-calling agent for everything else.** After triage, the model picks tools:
+   `get_pricing`, `get_timetable`, `search_knowledge`, `check_entitlement`, `request_login`,
+   `request_signup`. Prices and timings still come from Postgres via those tools — the model
+   never invents them.
+4. **Agentic RAG on documents.** `search_knowledge` retrieves with the caller's package filter
+   in SQL. If the first pass looks weak, a small judge may rewrite the query and retrieve
+   **once more on the same shelf** (max 2 attempts). Locked disciplines never enter that loop.
 
 FitBot never asks for a password. Signing in from the chat uses a real form that posts
 straight to the API, so credentials never enter the conversation transcript.
@@ -178,10 +180,14 @@ Three things keep FitBot answering:
 
 Both keys are optional. With neither, FitBot explains that it needs one; with one, it uses it.
 
-## The two admin agents
+## The admin agents (Insights)
 
-Both live at **Admin console → Insights**, and both are behind `require_admin`. Trainers and
+All live at **Admin console → Insights**, and all are behind `require_admin`. Trainers and
 members have no route to these figures.
+
+**Copilot (orchestrator)** — one textbox. A supervisor routes the question to DataAgent,
+AdvisorAgent, or both, then combines the answer. Sample prompts are labeled Data / Advice /
+Both so admins know what to ask.
 
 **DataAgent (data analyst)** — ask questions about the gym in plain English: "how much revenue
 have we made?", "which members are at risk of leaving?". It answers with real numbers and shows
@@ -212,6 +218,20 @@ trainer-written plan who never received one), members who stopped booking, under
 over-subscribed classes, trainer overload and idle trainers, knowledge base gaps, and stalled
 signup growth.
 
+## MCP servers (local AI tools on your machine)
+
+Two stdio MCP servers ship with the backend. Wire them only on a machine you control — not on
+a shared PC.
+
+| Entry | Command | Audience |
+| --- | --- | --- |
+| Gym tools | `python -m app.mcp_server` | Pricing, timetable, RAG, metrics, book class |
+| Admin Copilot | `python -m app.mcp_admin` | Admin login → session token → `ask_copilot` |
+
+Admin MCP auth: call `admin_login(email, password)` once; pass the returned `session_token` to
+`ask_copilot`. Never put the password on every question. Role is re-checked from the database
+on each call. See [backend/BACKEND.md](backend/BACKEND.md) for Cursor config examples.
+
 ## Tests
 
 ```bash
@@ -219,10 +239,10 @@ cd backend
 python -m pytest
 ```
 
-139 tests covering agent routing and safety logic, authentication, role boundaries, package
-entitlements, the document access ladder, conversation privacy, metric correctness, the
-analyst's key validation, provider fallback and the front-desk answers. The model is stubbed,
-so the suite is fast, free and offline.
+186 tests covering agent routing and safety logic, FitBot tools, agentic RAG, the Copilot
+orchestrator, MCP admin auth, authentication, role boundaries, package entitlements, the
+document access ladder, conversation privacy, metric correctness, provider fallback and
+front-desk answers. The model is stubbed, so the suite is fast, free and offline.
 
 ```bash
 cd frontend
@@ -232,10 +252,10 @@ npm run build     # production build
 
 ### Browser tests
 
-45 Playwright tests drive a real Chromium against the running app: the public site, signup and
+46 Playwright tests drive a real Chromium against the running app: the public site, signup and
 login, route guards for all three roles, the member dashboard, class booking and entitlement
-refusals, the trainer desk, the admin console, PDF ingestion, both admin agents, and the FitBot
-widget. They also fail the run on any console error or 5xx response.
+refusals, the trainer desk, the admin console, PDF ingestion, Insights (Copilot / analyst /
+advisor), and the FitBot widget. They also fail the run on any console error or 5xx response.
 
 Start both servers first, then:
 

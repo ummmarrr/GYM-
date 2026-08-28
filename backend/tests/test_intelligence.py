@@ -103,6 +103,26 @@ def test_the_analyst_rejects_a_member(client, member):
     assert response.status_code == 403
 
 
+def test_copilot_rejects_anonymous_and_non_admins(client, member, trainer):
+    assert client.post("/api/admin/copilot/ask", json={"question": "How is revenue?"}).status_code == 401
+    assert (
+        client.post(
+            "/api/admin/copilot/ask",
+            headers=auth_header(client, member.email),
+            json={"question": "How is revenue?"},
+        ).status_code
+        == 403
+    )
+    assert (
+        client.post(
+            "/api/admin/copilot/ask",
+            headers=auth_header(client, trainer.email),
+            json={"question": "How is revenue?"},
+        ).status_code
+        == 403
+    )
+
+
 # --- Behaviour ------------------------------------------------------------
 
 

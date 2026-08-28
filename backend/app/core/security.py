@@ -23,6 +23,18 @@ def create_access_token(subject: str, role: str) -> str:
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
+def create_mcp_admin_token(subject: str, *, minutes: int = 60) -> str:
+    """Short-lived token for the admin MCP server. Purpose claim is checked on every tool call."""
+    settings = get_settings()
+    expires_at = datetime.now(UTC) + timedelta(minutes=minutes)
+    payload = {
+        "sub": subject,
+        "purpose": "mcp_admin",
+        "exp": expires_at,
+    }
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
 def decode_access_token(token: str) -> dict[str, str]:
     settings = get_settings()
     return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])

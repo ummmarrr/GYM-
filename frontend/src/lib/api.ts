@@ -135,6 +135,14 @@ export interface AdvisorReport {
   recommendations: Recommendation[];
 }
 
+export interface CopilotAnswer {
+  question: string;
+  answer: string;
+  agents_used: string[];
+  metrics: MetricTable[];
+  recommendations: Recommendation[];
+}
+
 export type ChatAction = "none" | "login" | "signup" | "show_plans" | "upgrade";
 
 export interface ChatReply {
@@ -328,4 +336,5 @@ export const api = {
   metrics: () => get<MetricTable[]>("/admin/analyst/metrics"),
   askAnalyst: (question: string) => post<AnalystAnswer>("/admin/analyst/ask", { question }),
   advisorReport: () => get<AdvisorReport>("/admin/advisor/report"),
+  askCopilot: (question: string) => post<CopilotAnswer>("/admin/copilot/ask", { question }),
 };

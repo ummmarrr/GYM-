@@ -31,8 +31,8 @@ A small gym runs on WhatsApp messages and a paper register. Three things go wron
    Which trainer is overloaded? The data exists but nobody queries it.
 
 Master GYM answers all three: a chat assistant for the repeated questions, one server-side
-rule engine for what each package allows, and two admin agents that read the database and
-report in plain English.
+rule engine for what each package allows, and admin agents (analyst, advisor, Copilot) that read
+the database and report in plain English.
 
 ---
 
@@ -54,7 +54,7 @@ report in plain English.
 | **PyMuPDF** | PDF text extraction | Fast, no external binary |
 | **PyJWT** | Tokens | Stateless auth, no session table |
 | **pwdlib + Argon2** | Password hashing | The current recommended algorithm |
-| **pytest** | Tests | 151 of them, offline |
+| **pytest** | Tests | 186 of them, offline |
 | **ruff** | Linting and imports | Fast, replaces several tools |
 | **Uvicorn** | ASGI server | The standard FastAPI pairing |
 
@@ -69,7 +69,7 @@ report in plain English.
 | **Tailwind CSS v4** | Styling | Design tokens in CSS, no config file, no UI library to fight |
 | **lucide-react** | Icons | Tree-shakeable, one consistent set |
 | **React Context** | Shared state | The only shared state is the current user |
-| **Playwright** | Browser tests | 45 tests on real Chromium |
+| **Playwright** | Browser tests | 46 tests on real Chromium |
 
 ### Infrastructure
 
@@ -314,24 +314,25 @@ Have these ready. Specifics make a project sound real.
 
 | Fact | Number |
 | --- | --- |
-| Backend tests, all offline | **151** |
-| Playwright browser tests | **45** |
-| Total automated tests | **196** |
+| Backend tests, all offline | **186** |
+| Playwright browser tests | **46** |
+| Total automated tests | **232** |
 | Database tables | **12** |
-| API endpoints | **34** (including the health check) |
-| LangGraph agents | **3** (FitBot, DataAgent, AdvisorAgent) |
+| API endpoints | **35** (including the health check) |
+| LangGraph agents | **4** (FitBot, DataAgent, AdvisorAgent, Copilot) |
+| MCP servers | **2** (gym tools + admin Copilot) |
 | Vetted admin metrics | **11** |
 | Recommendation rules | **12** |
 | Roles | **3**, enforced server-side |
-| Prompt size, before and after trimming | **~2,500 → ~740 tokens** |
+| Agentic RAG attempts | **2** (1 retrieve + optional rewrite) |
 | Embedding dimensions | **768** |
 | Chunk size and overlap | **1200 / 180 characters** |
 | Runtime frontend dependencies | **4** |
 | Monthly hosting cost | **₹0** |
 
-Two of these are the good ones. **"196 tests, none of which need the internet"** answers "how
-do you know it works?". **"2,500 tokens down to 740"** is a measured optimisation with a
-before and after, which is much stronger than "I optimised the prompts".
+Two of these are the good ones. **"232 tests, none of which need the internet for the
+backend suite"** answers "how do you know it works?". **"Agentic RAG with package filtering
+inside SQL"** is a measured retrieval design with a before and after story.
 
 ---
 
@@ -345,19 +346,17 @@ Pick four. Each one names a technology, an action and a result.
 > - Built a role-based platform (member, trainer, admin) where feature access is derived from
 >   one server-side entitlement engine, so package tiers govern class booking, personalised
 >   programmes, and which documents the AI assistant may quote — from a single source of truth.
-> - Designed a LangGraph assistant that routes questions through a safety gate and a triage
->   step before any model call, answering pricing and timetable questions directly from
->   Postgres; combined with a Gemini→Groq fallback chain and a 15-minute quota cooldown, this
->   kept the assistant available on free-tier limits.
-> - Built RAG over admin-uploaded PDFs using pgvector, filtering by membership tier inside the
->   SQL query so a document outside a member's package can never influence an answer; replies
->   cite source file and page.
-> - Shipped two admin agents that answer questions and generate prioritised recommendations
->   from a registry of vetted SQL queries instead of model-generated SQL, eliminating both
->   hallucinated figures and the risk of an LLM reading password hashes.
-> - Cut prompt size from ~2,500 to ~740 tokens by clipping retrieved chunks and omitting
->   context the question does not need, roughly tripling the conversations served per quota.
-> - Wrote 196 automated tests — 151 pytest with the model stubbed, 45 Playwright on real
+> - Designed a LangGraph FitBot with a deterministic safety gate and triage, then a
+>   tool-calling respond step (pricing, timetable, entitlements, RAG); combined with a
+>   Gemini→Groq fallback chain and quota cooldown on free-tier limits.
+> - Built agentic RAG over admin-uploaded PDFs using pgvector: filter by membership tier inside
+>   SQL, then optionally rewrite the query once if a judge says the first chunks are weak —
+>   never widening the package shelf.
+> - Shipped an admin Copilot that orchestrates DataAgent and AdvisorAgent, plus two MCP servers
+>   (gym tools and admin-only Copilot with login → short-lived session token).
+> - Admin analytics use a registry of vetted SQL queries instead of model-generated SQL,
+>   eliminating both hallucinated figures and the risk of an LLM reading password hashes.
+> - Wrote 232 automated tests — 186 pytest with the model stubbed, 46 Playwright on real
 >   Chromium that also fail on any console error or 5xx response.
 > - Deployed on free tiers end to end (Render, Cloudflare Pages, Neon) with a `render.yaml`
 >   blueprint, migrating off disk-backed SQLite and ChromaDB to survive an ephemeral filesystem.
@@ -371,17 +370,16 @@ Pick four. Each one names a technology, an action and a result.
 > "Master GYM is a gym platform with three roles and an AI assistant called FitBot. The part I
 > find most interesting is that the assistant is inside the permission system rather than
 > beside it. What a member paid for decides which classes they can book **and** which of the
-> gym's documents the AI is allowed to quote — both read the same database column, so they
-> can't drift apart.
+> gym's documents the AI is allowed to quote — both read the same database column.
 >
-> The other decision I'd point at is the admin analytics. The obvious build is text-to-SQL, and
-> I deliberately didn't do that: a model with SQL access could read password hashes, and a
-> hallucinated join gives you a confident wrong number. So instead the model picks from a
-> registry of vetted queries. It chooses what to look at; my code does the counting.
+> FitBot is a tool-calling agent after a hard safety gate: the model picks pricing, timetable
+> or RAG tools instead of inventing facts. Document search is agentic — one relevance grade and
+> at most one rewrite, still on the same package shelf. Admins get a Copilot that orchestrates
+> DataAgent and AdvisorAgent, also exposed as an MCP server with login then a session token.
 >
 > It runs entirely on free tiers, which forced real engineering — two LLM providers in
-> sequence, a cooldown when one runs out of quota, and answering price questions straight from
-> Postgres instead of spending a model call."
+> sequence, a cooldown when one runs out of quota, and vetted metric queries instead of
+> text-to-SQL."
 
 That is three decisions in a minute, with a reason each. Stop there and let them pick one.
 
@@ -419,13 +417,12 @@ Order matters. Each step should show something the previous one could not.
    showing up inside a conversation.
 4. **Ask about chest pain during exercise** — a referral and a "flagged for a human trainer"
    badge. Note that the model was never called.
-5. **Sign in as admin → Insights → "which members are at risk of leaving?"** — a real answer
-   with the tables it read shown underneath. Explain the metric registry.
-6. **Advisor tab** — prioritised recommendations, each with evidence, action and impact. Note
-   that these are computed, so they still work with no API key.
+5. **Sign in as admin → Insights → Copilot → "why might members be leaving and what should I
+   do?"** — shows agents used (DataAgent + AdvisorAgent). Explain the orchestrator.
+6. **Advisor tab** — prioritised recommendations with evidence. Note findings are computed.
 
-If you have seven minutes, add the admin uploading a PDF and then asking FitBot about its
-contents, with the citation showing the filename and page.
+If you have seven minutes, add uploading a PDF, asking FitBot about it (agentic RAG / citation),
+and a quick note that admin Copilot is also available as MCP with login → session token.
 
 ---
 
@@ -482,10 +479,10 @@ Useful when matching yourself to a job description.
 role-based access control, stateless auth with JWT and Argon2, rate limiting, dependency
 injection, layered architecture with services that do not import from the API layer.
 
-**AI engineering** — RAG end to end (chunking, embedding, vector search, citations), agent
-design with LangGraph, prompt budgeting with measured before-and-after numbers, multi-provider
-fallback with cooldowns, and constraining a model's authority so hallucinations cannot become
-wrong numbers or leaked data.
+**AI engineering** — RAG end to end with an agentic retry loop, agent design with LangGraph
+(tool-calling FitBot + multi-agent Copilot), MCP servers with admin session auth, prompt
+budgeting, multi-provider fallback with cooldowns, and constraining a model's authority so
+hallucinations cannot become wrong numbers or leaked data.
 
 **Frontend engineering** — React with TypeScript in strict mode, routing with role guards,
 context-based auth state, a typed API client as the single network boundary, and a small
@@ -496,9 +493,9 @@ claim in the token deliberately not trusted, retrieval filtered in SQL before ra
 generation by a model, credentials kept out of the chat transcript, and read-only demo accounts
 so public passwords cannot damage a public deployment.
 
-**Testing** — 196 tests across two suites, stubbing external providers so the suite is fast and
-offline, testing permission boundaries and not just happy paths, and browser tests that fail on
-console errors and 5xx responses rather than only on wrong clicks.
+**Testing** — 232 tests across two suites, stubbing external providers so the backend suite is
+fast and offline, testing permission boundaries and not just happy paths, and browser tests
+that fail on console errors and 5xx responses rather than only on wrong clicks.
 
 **Operations** — deploying across three hosts, infrastructure as code with `render.yaml`,
 diagnosing and designing around an ephemeral filesystem, connection pooling against a database

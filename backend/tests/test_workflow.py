@@ -94,3 +94,12 @@ def test_member_with_the_entitlement_reaches_the_model():
     )
 
     assert result["action"] == "none"
+
+
+def test_a_price_question_is_no_longer_short_circuited_in_triage():
+    """Prices come from the get_pricing tool, which the model must choose to call."""
+    result = triage({"message": "How much do your packages cost?", "is_authenticated": False})
+
+    assert result.get("answer") is None
+    assert result["action"] == "none"
+    assert result["route"] == "reception"

@@ -13,7 +13,10 @@ def stub_model(monkeypatch):
         lambda self, system, prompt: LLMResult(text="Here is a simple plan."),
     )
     monkeypatch.setattr(
-        "app.agents.workflow._retrieve", lambda message, route, disciplines, db: []
+        "app.services.llm.LLMChain.generate_with_tools",
+        lambda self, system, prompt, tools, execute, max_rounds=4: LLMResult(
+            text="Here is a simple plan."
+        ),
     )
 
 

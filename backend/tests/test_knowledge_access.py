@@ -22,6 +22,12 @@ def stub_model(monkeypatch):
         "app.services.llm.LLMChain.generate",
         lambda self, system, prompt: LLMResult(text="A model wrote this."),
     )
+    monkeypatch.setattr(
+        "app.services.llm.LLMChain.generate_with_tools",
+        lambda self, system, prompt, tools, execute, max_rounds=4: LLMResult(
+            text="A model wrote this."
+        ),
+    )
 
 
 def give_package(db_session, member, plans, name):
@@ -95,10 +101,11 @@ def test_the_ladder_never_shrinks_as_the_package_grows(db_session, member, seede
 def test_retrieval_is_skipped_for_a_discipline_the_package_excludes(monkeypatch):
     """A gym-only member asking about MMA must not have MMA documents pulled in."""
     from app.agents import workflow
+    from app.services import gym_ops
 
     called = []
     monkeypatch.setattr(
-        workflow.KnowledgeBase,
+        gym_ops.KnowledgeBase,
         "retrieve",
         lambda self, query, disciplines, limit=3: called.append(disciplines) or [],
     )
@@ -109,10 +116,11 @@ def test_retrieval_is_skipped_for_a_discipline_the_package_excludes(monkeypatch)
 
 def test_retrieval_runs_for_a_discipline_the_package_includes(monkeypatch):
     from app.agents import workflow
+    from app.services import gym_ops
 
     called = []
     monkeypatch.setattr(
-        workflow.KnowledgeBase,
+        gym_ops.KnowledgeBase,
         "retrieve",
         lambda self, query, disciplines, limit=3: called.append(disciplines) or [],
     )
@@ -128,14 +136,16 @@ def test_a_starter_member_asking_about_mma_is_told_what_unlocks_it(
     give_package(db_session, member, seeded_plans, "Starter")
     captured = {}
 
-    def capture(self, system, prompt):
-        captured["prompt"] = prompt
+    def capture(self, system, prompt, tools, execute, max_rounds=4):
+        captured["tool"] = execute(
+            "search_knowledge", {"query": "boxing combination", "discipline": "mma"}
+        )
         return LLMResult(text="Here is some general advice.")
 
     from app.services.llm import LLMChain
 
-    original = LLMChain.generate
-    LLMChain.generate = capture
+    original = LLMChain.generate_with_tools
+    LLMChain.generate_with_tools = capture
     try:
         response = client.post(
             "/api/fitbot/chat",
@@ -143,10 +153,10 @@ def test_a_starter_member_asking_about_mma_is_told_what_unlocks_it(
             json={"message": "teach me a boxing combination"},
         )
     finally:
-        LLMChain.generate = original
+        LLMChain.generate_with_tools = original
 
     assert response.status_code == 200
-    assert "does not include mma" in captured["prompt"]
+    assert "does not include mma" in captured["tool"]
 
 
 def test_a_complete_member_is_not_told_anything_is_locked(
@@ -155,14 +165,16 @@ def test_a_complete_member_is_not_told_anything_is_locked(
     give_package(db_session, member, seeded_plans, "Complete")
     captured = {}
 
-    def capture(self, system, prompt):
-        captured["prompt"] = prompt
+    def capture(self, system, prompt, tools, execute, max_rounds=4):
+        captured["tool"] = execute(
+            "search_knowledge", {"query": "boxing combination", "discipline": "mma"}
+        )
         return LLMResult(text="Here is a combination.")
 
     from app.services.llm import LLMChain
 
-    original = LLMChain.generate
-    LLMChain.generate = capture
+    original = LLMChain.generate_with_tools
+    LLMChain.generate_with_tools = capture
     try:
         client.post(
             "/api/fitbot/chat",
@@ -170,6 +182,6 @@ def test_a_complete_member_is_not_told_anything_is_locked(
             json={"message": "teach me a boxing combination"},
         )
     finally:
-        LLMChain.generate = original
+        LLMChain.generate_with_tools = original
 
-    assert "does not include" not in captured["prompt"]
+    assert "does not include" not in captured["tool"]

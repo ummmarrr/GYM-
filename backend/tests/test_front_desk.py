@@ -1,4 +1,4 @@
-"""Questions answered from the database, which never reach a model."""
+"""Questions the database already holds, now fetched when the model calls a tool."""
 
 from datetime import timedelta
 
@@ -14,14 +14,27 @@ MODEL_REPLY = "A model wrote this."
 
 @pytest.fixture(autouse=True)
 def stub_model(monkeypatch):
-    """Anything the model answers is recognisable, so a scripted reply is obvious."""
+    """Anything the model answers is recognisable, so a tool-backed reply is obvious."""
+    from app.agents.workflow import classify_front_desk
+
     monkeypatch.setattr(
         "app.services.llm.LLMChain.generate",
         lambda self, system, prompt: LLMResult(text=MODEL_REPLY),
     )
-    monkeypatch.setattr(
-        "app.agents.workflow._retrieve", lambda message, route, disciplines, db: []
-    )
+
+    def generate_with_tools(self, system, prompt, tools, execute, max_rounds=4):
+        question = prompt.rsplit("Q:", 1)[-1].strip() if "Q:" in prompt else prompt
+        kind = classify_front_desk(question)
+        if kind == "pricing":
+            return LLMResult(text=execute("get_pricing", {}))
+        if kind == "timetable":
+            result = execute("get_timetable", {})
+            if result.startswith("No classes"):
+                return LLMResult(text=MODEL_REPLY)
+            return LLMResult(text=result)
+        return LLMResult(text=MODEL_REPLY)
+
+    monkeypatch.setattr("app.services.llm.LLMChain.generate_with_tools", generate_with_tools)
 
 
 def ask(client, message, headers=None):

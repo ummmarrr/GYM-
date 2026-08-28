@@ -15,7 +15,7 @@ WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 # Everything else a demo account posts would outlive the visit: deleted members, edited
 # packages, removed documents. These two change nothing a later visitor would notice, and
 # they are the whole point of the tour, so they stay open.
-DEMO_WRITE_PATHS = ("/api/admin/analyst/ask",)
+DEMO_WRITE_PATHS = ("/api/admin/analyst/ask", "/api/admin/copilot/ask")
 DEMO_WRITE_SUFFIXES = ("/book",)
 
 

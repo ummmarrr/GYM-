@@ -17,7 +17,7 @@ It has to serve four different kinds of visitor from the same bundle:
 1. A stranger reading the marketing page.
 2. A member checking their plan, programmes and classes.
 3. A trainer writing programmes and managing the timetable.
-4. An admin managing people, PDFs and the two AI agents.
+4. An admin managing people, PDFs and the Insights agents (Copilot, analyst, advisor).
 
 ---
 
@@ -32,7 +32,7 @@ It has to serve four different kinds of visitor from the same bundle:
 | Styling | Tailwind CSS v4 | No separate config file, and no UI library to fight |
 | Icons | lucide-react | Tree-shakeable SVG icons, one consistent set |
 | State | React context + hooks | The only shared state is "who is signed in". A store would be overkill |
-| Browser tests | Playwright | 45 tests driving real Chromium |
+| Browser tests | Playwright | 46 tests driving real Chromium |
 | Linting | `tsc --noEmit` | Type errors are the errors that matter here |
 
 Node 20 or newer. No ESLint or Prettier config — `npm run lint` is a type check.
@@ -339,7 +339,7 @@ About thirty functions grouped on one `api` object, named after intent rather th
 | Admin people | `people`, `createPerson`, `updatePerson`, `changeRole`, `assignTrainer`, `overview` |
 | Staff | `myMembers`, `memberProgrammes`, `createProgramme` |
 | Knowledge | `documents`, `uploadDocument`, `deleteDocument` |
-| AI | `chat`, `metrics`, `askAnalyst`, `advisorReport` |
+| AI | `chat`, `metrics`, `askAnalyst`, `advisorReport`, `askCopilot` |
 
 These types are written by hand rather than generated from the OpenAPI schema. For an app this
 size that is less machinery, and a mismatch shows up immediately as a type error in the page
@@ -463,20 +463,19 @@ while the request is in flight.
 
 ### `AdminInsights.tsx` — `/admin/insights`
 
-Two tabs over the two agents. `api.metrics()` loads on mount to show how much context the
-analyst has; the advisor report is fetched only when its tab is first opened.
+Three tabs. Default is **Copilot**.
 
-**Analyst tab** — an empty state with five suggested questions, then a chat-style list of
-turns. Each turn shows the question, the answer, and the metric tables the agent actually read,
-rendered by an internal `MetricGrid`. Showing the tables is the point: an admin can check the
-numbers instead of trusting the prose. Input is capped at 500 characters and stays pinned at
-the bottom.
+**Copilot tab** — one textbox for the multi-agent orchestrator. Empty state explains DataAgent /
+AdvisorAgent / Both, with sample chips labeled accordingly. Each reply shows which agents ran,
+plus any metric tables and recommendation cards they produced. Calls `api.askCopilot`.
 
-**Advisor tab** — a briefing card with the summary, a refresh button, and a grid of
-`RecommendationCard`s. Each card shows the priority, the evidence, the recommended action and
-the impact.
+**Analyst tab** — five suggested questions, then a chat-style list of turns with `MetricGrid`
+for the tables the agent actually read. Input capped at 500 characters.
 
-Neither is streamed. One POST, one full response.
+**Advisor tab** — briefing card with summary, refresh, and `RecommendationCard` grid. Fetched
+on first open of the tab.
+
+None of these are streamed. One POST, one full response.
 
 ---
 
@@ -632,7 +631,7 @@ npm run e2e          # run them
 npm run e2e:report   # open the HTML report
 ```
 
-**45 tests in 5 files**, driving real Chromium against both servers running.
+**46 tests in 5 files**, driving real Chromium against both servers running.
 
 | File | Tests | Covers |
 | --- | --- | --- |
@@ -640,7 +639,7 @@ npm run e2e:report   # open the HTML report
 | `staff.spec.ts` | 13 | Trainer desk, admin console, PDF ingest, cross-role flow |
 | `fitbot.spec.ts` | 8 | The widget: prompts, in-chat sign-in, safety handoff |
 | `member.spec.ts` | 7 | Membership card, programmes, booking, profile, sign out |
-| `insights.spec.ts` | 7 | Analyst questions, metric tables, advisor report |
+| `insights.spec.ts` | 8 | Analyst, advisor, Copilot tab, metric tables |
 
 `helpers.ts` holds the shared pieces: `uniqueEmail()` for timestamped signups,
 `signIn(page, who)` and `signOut(page)`, `openFitBot()` and `sendToFitBot()`. Trainer and

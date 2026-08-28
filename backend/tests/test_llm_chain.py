@@ -101,3 +101,42 @@ def test_a_lapsed_cooldown_lets_the_provider_back_in():
     chain.generate("sys", "prompt")
 
     assert gemini.calls == 2
+
+
+class FakeToolProvider:
+    name = "gemini"
+    is_configured = True
+
+    def __init__(self):
+        self.calls = 0
+
+    def generate(self, system_instruction, prompt):
+        raise AssertionError("plain generate should not run when tools are available")
+
+    def generate_with_tools(self, system_instruction, prompt, tools, execute, max_rounds=4):
+        self.calls += 1
+        return LLMResult(execute("get_pricing", {}), provider=self.name)
+
+
+def test_generate_with_tools_runs_the_callback_the_model_asked_for():
+    provider = FakeToolProvider()
+
+    result = LLMChain([provider]).generate_with_tools(
+        "sys",
+        "prices?",
+        tools=[],
+        execute=lambda name, arguments: f"ran {name}",
+    )
+
+    assert result.text == "ran get_pricing"
+    assert provider.calls == 1
+
+
+def test_generate_with_tools_falls_back_to_plain_generate():
+    provider = FakeProvider("groq", text="from groq")
+
+    result = LLMChain([provider]).generate_with_tools(
+        "sys", "prompt", tools=[], execute=lambda name, arguments: "unused"
+    )
+
+    assert result.text == "from groq"

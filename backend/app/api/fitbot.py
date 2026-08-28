@@ -7,13 +7,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.agents.workflow import classify_front_desk, workflow
+from app.agents.workflow import workflow
 from app.api.deps import get_current_user, get_optional_user
 from app.core.config import get_settings
 from app.core.rate_limit import rate_limit
 from app.db import ChatMessage, Conversation, FitnessProfile, Role, User, get_db
 from app.schemas import ChatRequest, ChatResponse, SourceCitation
-from app.services import front_desk
 from app.services.entitlements import entitlements_for
 
 router = APIRouter(prefix="/fitbot", tags=["fitbot"])
@@ -113,8 +112,6 @@ def chat(
         conversation.user_id = user.id
 
     ent = entitlements_for(db, user) if user else None
-    # Read prices and timings here, where the session lives, rather than inside the graph.
-    scripted = front_desk.answer(db, classify_front_desk(payload.message))
     state = workflow.invoke(
         {
             "message": payload.message,
@@ -126,7 +123,6 @@ def chat(
             "allowed_disciplines": ent.allowed_disciplines if ent else (),
             "entitlements": _describe_entitlements(db, user),
             "profile": _describe_profile(db, user),
-            "scripted": scripted or "",
             "db": db,
         }
     )

@@ -38,7 +38,7 @@ cases.
 | Passwords | Argon2 through `pwdlib` | Argon2 is the current recommended password hash. |
 | Tokens | `PyJWT` (HS256) | Small, stateless, no session table needed. |
 | Settings | `pydantic-settings` | Reads `.env`, checks types, one place for defaults. |
-| Tests | pytest | 151 tests, no network calls. |
+| Tests | pytest | 186 tests, no network calls. |
 | Linting | ruff | Fast, replaces flake8 + isort. |
 
 Python 3.11 or newer. The hosted service pins 3.14.3 in `render.yaml`.
@@ -66,23 +66,28 @@ backend/
 │   │   ├── people.py         Admin people management, profiles, programmes
 │   │   ├── fitbot.py         The chat endpoint
 │   │   ├── knowledge.py      Admin PDF upload and delete
-│   │   └── intelligence.py   The two admin agents
+│   │   └── intelligence.py   DataAgent, AdvisorAgent, Copilot
 │   ├── agents/
-│   │   ├── workflow.py       FitBot graph
+│   │   ├── workflow.py       FitBot graph (safety → triage → tool-calling respond)
+│   │   ├── tools.py          FitBot tool specs and executors
 │   │   ├── analyst.py        DataAgent graph
-│   │   └── advisor.py        AdvisorAgent graph
+│   │   ├── advisor.py        AdvisorAgent graph
+│   │   └── orchestrator.py   Admin Copilot (supervisor over analyst + advisor)
+│   ├── mcp_server.py         Public gym MCP tools (stdio)
+│   ├── mcp_admin.py          Admin Copilot MCP (login → session token)
 │   └── services/
-│       ├── llm.py            Gemini → Groq fallback chain
+│       ├── llm.py            Gemini → Groq fallback + generate_with_tools
 │       ├── embeddings.py     Gemini embedding client
 │       ├── rag.py            PDF ingest, chunking, vector search
+│       ├── gym_ops.py        Shared tools + agentic search_documents
 │       ├── entitlements.py   What a package allows
 │       ├── analytics.py      Vetted metric queries
 │       ├── insights.py       Recommendation rules
-│       └── front_desk.py     Price and timetable answers from the database
+│       └── front_desk.py     Price and timetable text from the database
 ├── scripts/
 │   ├── seed.py               Create the first admin and demo data
 │   └── reset_db.py           Drop and rebuild the schema
-└── tests/                    151 tests
+└── tests/                    186 tests
 ```
 
 The rule the layout follows: **`api/` handles HTTP, `services/` holds the thinking, `agents/`
@@ -123,8 +128,9 @@ ChatResponse                 Answer, route, sources, handoff flag, action.
 ```
 
 Everything the graph needs is collected **before** the graph runs. The endpoint reads
-entitlements, the fitness profile, the last few messages and any scripted answer, then hands
-the graph a plain dictionary. That keeps the graph easy to test: no HTTP, no session mocking.
+entitlements, the fitness profile and the last few messages, then hands the graph a plain
+dictionary. Prices, timetable and documents are fetched inside `respond` when the model
+calls tools — that keeps the graph easy to test: no HTTP, no session mocking.
 
 ### The app itself (`app/main.py`)
 
@@ -456,6 +462,7 @@ answers.
 | GET | `/admin/analyst/metrics` | admin | Every metric in the registry |
 | POST | `/admin/analyst/ask` | admin | Ask a question in plain English |
 | GET | `/admin/advisor/report` | admin | Prioritised recommendations |
+| POST | `/admin/copilot/ask` | admin | Supervisor: DataAgent and/or AdvisorAgent |
 
 ---
 
@@ -475,155 +482,112 @@ flowchart TD
     RS --> E3([END])
 ```
 
-Built like this:
-
-```python
-graph.add_edge(START, "safety_gate")
-graph.add_conditional_edges("safety_gate", route_after_safety, {"triage": "triage", "finish": END})
-graph.add_conditional_edges("triage", route_after_triage, {"respond": "respond", "finish": END})
-graph.add_edge("respond", END)
-```
-
 The shape carries the main idea: **two of the three paths never call the model.** Only
-`respond` costs quota.
+`respond` costs quota. Safety and auth/upgrade prompts stay as code — those are permission
+decisions, not something a prompt can be talked out of.
 
 ### Node 1 — `safety_gate`
 
-Checks the message against `HIGH_RISK_TERMS` (chest pain, faint, dizzy, pregnant, medication,
-eating disorder, self harm, suicide, rehabilitation, diagnose, steroid, anabolic) and
-`INJURY_TERMS` (injury, injured, fracture, torn, severe pain, concussion, slipped disc).
-
-A match returns a fixed referral message, sets `needs_human_handoff=True`, and ends the graph.
-The model is never called. That is the point: you cannot prompt-inject your way past a branch
-that does not exist, and the answer to "which steroid should I take" is the same every time.
-
-Keyword matching is blunt and will sometimes stop a harmless question. For a health topic that
-is the right direction to be wrong in.
+Checks the message against `HIGH_RISK_TERMS` and `INJURY_TERMS`. A match returns a fixed
+referral, sets `needs_human_handoff=True`, and ends the graph. The model is never called.
 
 ### Node 2 — `triage`
 
 Decides whether the question can be answered at all, before spending a model call. In order:
 
-1. **Signed-out and asking to join** → the signup prompt, `action="signup"`.
-2. **Signed-out and asking about "my plan" / "my booking" / "expire"** → the login prompt,
-   `action="login"`. It does not guess. The widget then renders a real sign-in form.
-3. **Signed in, asking for a personalised plan, package does not include it** → the upgrade
-   prompt, `action="upgrade"`.
-4. **A scripted answer is already available** (prices, timetable) → return it as-is.
-5. **Otherwise** → set the route and continue to `respond`.
+1. **Signed-out and asking to join** → signup prompt, `action="signup"`.
+2. **Signed-out and asking about "my plan" / booking / expire** → login prompt, `action="login"`.
+3. **Signed in, asking for a personalised plan, package does not include it** → upgrade prompt.
+4. **Otherwise** → set the route and continue to `respond`.
 
-Routing is keyword based. `classify_route` returns `account`, `yoga`, `mma`, `reception`, or
-`gym` as the default.
+Prices and timetable are **not** short-circuited here anymore. The model calls `get_pricing` /
+`get_timetable` tools instead, so the same path works for FitBot and MCP.
 
-`classify_front_desk` has one subtlety worth reading:
+### Node 3 — `respond` (tool-calling agent)
 
 ```python
-def classify_front_desk(message: str) -> str | None:
-    text = message.lower()
-    if _mentions(text, ACCOUNT_TERMS) or _mentions(text, PERSONAL_PROGRAMME_TERMS):
-        return None
-    if _mentions(text, PRICING_TERMS):
-        return "pricing"
-    if _mentions(text, TIMETABLE_TERMS):
-        return "timetable"
-    return None
+result = get_llm().generate_with_tools(
+    SYSTEM_PROMPT, prompt, FITBOT_TOOLS,
+    lambda name, arguments: execute_fitbot_tool(name, arguments, ctx),
+)
 ```
 
-"What packages do you have?" and "when does my package expire?" both contain the word
-*package*, but only the first should get the public price list. Checking the account words
-first prevents answering a personal question with a brochure.
+Tools (see `app/agents/tools.py`, backed by `app/services/gym_ops.py`):
 
-### Node 3 — `respond`
+| Tool | Purpose |
+| --- | --- |
+| `get_pricing` | Live packages from Postgres |
+| `get_timetable` | Next 7 days of classes |
+| `search_knowledge` | Agentic RAG, filtered by package |
+| `check_entitlement` | Caller's plan / quota / expiry |
+| `request_login` / `request_signup` | In-chat forms — never ask for a password |
 
-```python
-def respond(state):
-    route = state.get("route", "gym")
-    disciplines = readable_disciplines(state.get("allowed_disciplines"))
-    chunks = _retrieve(state["message"], route, disciplines, state.get("db"))
-    locked = route in COACHING_ROUTES and route not in disciplines
-    prompt = build_prompt(state, chunks, locked=locked)
-    result = get_llm().generate(SYSTEM_PROMPT, prompt)
-    return {"answer": result.text, "sources": chunks, "action": "none"}
-```
-
-`locked` handles the nicest case in the whole file. Ask about MMA on a gym-only package and
-FitBot still answers from general knowledge, then names the package that unlocks the gym's own
-material. It does not refuse, and it does not quote documents you have not paid for.
+Gemini and Groq both run a tool loop (max 4 rounds) with the same fallback/cooldown as plain
+`generate`. If a provider has no tool API, the chain falls back to plain text generation.
 
 ### The prompt budget
 
-Free tiers cap tokens as well as requests, so the prompt is built to be small:
-
-| Constant | Value | Effect |
-| --- | --- | --- |
-| `RETRIEVAL_LIMIT` | 3 | At most three chunks |
-| `CHUNK_CHAR_BUDGET` | 500 | Each chunk clipped from 1200 to 500 characters |
-| `CONTEXT_CHAR_BUDGET` | 1500 | Total document context ceiling |
-| `HISTORY_TURNS` | 4 | Last four messages only |
-| `HISTORY_CHARS_PER_TURN` | 200 | Each one clipped |
-| `LLM_MAX_OUTPUT_TOKENS` | 500 | Output counts against quota too |
-
-`build_prompt` also leaves out anything the route cannot use. Membership details are irrelevant
-to a squat-technique question, and a fitness profile is irrelevant to an opening-hours
-question, so neither is sent unless the route needs it. Together these cut a typical call from
-roughly 2,500 tokens to about 740.
+History is still clipped (`HISTORY_TURNS` / `HISTORY_CHARS_PER_TURN` in the chat endpoint).
+Documents arrive via tools rather than being stuffed into the first prompt, which keeps the
+initial call small. Chunk text is clipped to 500 characters when rendered for the model.
 
 ---
 
-## 11. The knowledge base (`app/services/rag.py`)
+## 11. The knowledge base (`app/services/rag.py` + agentic layer in `gym_ops.py`)
 
 ### Ingesting a PDF
 
-1. SHA-256 the file. If those chunks already exist, stop and report `already_present`.
-2. Read text page by page with PyMuPDF.
-3. Chunk each page: normalise whitespace, then slice 1200 characters with 180 overlap. Drop
-   anything under 100 characters.
-4. Embed all chunks in batches of 50.
-5. Insert rows carrying the page number, the source filename, and the discipline.
+Unchanged: SHA-256, PyMuPDF, 1200/180 chunks, Gemini embeddings at 768 dims, HNSW on Postgres.
 
-Overlap exists so a sentence split across a boundary still appears whole in one chunk. Page
-numbers are kept so answers can cite "protocol.pdf p.7" instead of just naming the file.
-
-### Searching
+### Searching (base)
 
 ```python
-rows = self.db.scalars(
-    select(KnowledgeChunk)
-    .where(KnowledgeChunk.discipline.in_(allowed))
-    .order_by(KnowledgeChunk.embedding.cosine_distance(embedded))
-    .limit(limit)
-).all()
+select(KnowledgeChunk)
+  .where(KnowledgeChunk.discipline.in_(allowed))
+  .order_by(KnowledgeChunk.embedding.cosine_distance(embedded))
 ```
 
-The important word is `WHERE`. Filtering happens **inside** the query, before ranking, not
-after it. A member on a gym-only package cannot have their answer shaped by a yoga document
-even slightly, because those rows are never candidates.
+Filtering happens **inside** the query, before ranking.
 
-Two cheap guards come first: if the caller's shelves are empty the function returns early
-without spending an embedding call, and if embedding fails it logs and returns `[]` so FitBot
-answers without documents rather than erroring.
+### Agentic RAG (`search_documents` in `gym_ops.py`)
+
+1. Retrieve on the requested shelf (package filter unchanged).
+2. Locked shelf or empty shelf → stop. No judge call.
+3. If chunks exist and an LLM is configured → grade with a tiny JSON judge
+   `{"enough": bool, "rewrite": "..."}`.
+4. If not enough and rewrite is set → **one** more retrieve on the **same** shelf
+   (`MAX_RETRIEVAL_ATTEMPTS = 2`).
+5. No LLM / unreadable JSON → keep the first pass.
+
+FitBot's `search_knowledge` tool and the public MCP `search_knowledge` both call this helper,
+so behaviour cannot drift.
 
 ### Who may read what
 
-`readable_disciplines` adds `reception` to whatever the package allows:
+`readable_disciplines` adds `reception` to whatever the package allows — same ladder as before
+(visitor → Starter → Performance → Complete → staff).
 
-| Caller | Shelves in reach |
-| --- | --- |
-| Visitor, or member with no live package | reception |
-| Starter | reception, gym |
-| Performance | reception, gym, yoga |
-| Complete | reception, gym, yoga, mma |
-| Trainer, admin | everything |
+---
 
-This ladder is not a second list to maintain. It reads `allowed_disciplines` off the package
-the member bought — the same column that decides class booking.
+## 11b. Admin Copilot (`app/agents/orchestrator.py`)
 
-### Embeddings (`app/services/embeddings.py`)
+A supervisor with two tools: `ask_data_analyst` and `get_advisor_report`. It may call one or
+both, then narrate. When no LLM is configured, a keyword router still runs both specialists
+where appropriate. Exposed as `POST /api/admin/copilot/ask` and as the admin MCP `ask_copilot`
+tool after login.
 
-`gemini-embedding-001` at 768 dimensions. Documents are embedded with task type
-`RETRIEVAL_DOCUMENT` and queries with `RETRIEVAL_QUERY`, which is the correct asymmetric setup.
-Vectors are unit-normalised, batched 50 at a time, and queries are cached with
-`lru_cache(maxsize=512)` so a repeated question costs nothing.
+---
+
+## 11c. MCP servers
+
+| Module | Entry | Tools |
+| --- | --- | --- |
+| `app/mcp_server.py` | `python -m app.mcp_server` / `master-gym-mcp` | pricing, timetable, knowledge, metrics, book class |
+| `app/mcp_admin.py` | `python -m app.mcp_admin` / `master-gym-admin-mcp` | `admin_login`, `ask_copilot`, `admin_logout`, `sample_questions` |
+
+Admin MCP: password only on `admin_login`; later calls use a short-lived JWT with
+`purpose=mcp_admin`. Role is re-read from the DB every time. Wire these only on a machine you
+own — not on a shared PC.
 
 ---
 
@@ -675,7 +639,7 @@ prompt tells the model never to invent a price, so it could not answer these wel
 
 ---
 
-## 14. The two admin agents
+## 14. The admin agents (analyst, advisor, Copilot)
 
 Both live behind `require_admin`. Trainers and members have no route to these numbers.
 
@@ -775,20 +739,24 @@ cd backend
 python -m pytest
 ```
 
-**151 tests, no network calls**, so the suite is fast, free and works offline.
+**186 tests, no network calls**, so the suite is fast, free and works offline.
 
 | File | Tests | What it protects |
 | --- | --- | --- |
-| `test_intelligence.py` | 23 | Metric key validation, keyword fallback, admin-only access |
+| `test_intelligence.py` | 24 | Metric key validation, keyword fallback, admin-only access, Copilot ACL |
 | `test_authorization.py` | 19 | Role boundaries, self-demotion and self-deactivation guards |
-| `test_front_desk.py` | 18 | Pricing and timetable routing, "my package" vs "your packages" |
+| `test_front_desk.py` | 18 | Pricing/timetable via tools, "my package" vs "your packages" |
 | `test_analytics.py` | 15 | Metric correctness, empty-database safety, insight rules |
-| `test_workflow.py` | 14 | Route classification, safety gate, triage decisions |
+| `test_workflow.py` | 15 | Route classification, safety gate, triage, price not short-circuited |
 | `test_fitbot.py` | 12 | Chat for all roles, conversation ownership, handoff |
-| `test_knowledge_access.py` | 11 | The document ladder, locked-package prompts |
+| `test_knowledge_access.py` | 11 | Document ladder, locked-package prompts |
+| `test_llm_chain.py` | 10 | Provider order, cooldown, generate_with_tools |
 | `test_membership.py` | 10 | Entitlements, booking rules, quotas, expiry |
 | `test_auth.py` | 9 | Registration, role escalation blocked, login errors |
-| `test_llm_chain.py` | 8 | Provider order, cooldown, all-down behaviour |
+| `test_orchestrator.py` | 9 | Copilot routing, tools, admin-only endpoint |
+| `test_agentic_rag.py` | 8 | Grade grade, retry, locked shelf, max 2 attempts |
+| `test_tools.py` | 7 | FitBot tools, gym_ops, public MCP tool names |
+| `test_mcp_admin.py` | 7 | Admin MCP login → token, member rejection |
 | `test_demo_accounts.py` | 6 | Read-only demo logins, email redaction |
 | `test_rate_limit.py` | 6 | Sliding window, `X-Forwarded-For` |
 

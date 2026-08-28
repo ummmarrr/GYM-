@@ -10,6 +10,7 @@ test.describe("Admin insights", () => {
     await page.getByRole("link", { name: /Insights/i }).first().click();
     await expect(page).toHaveURL(/\/admin\/insights/);
     await expect(page.getByRole("heading", { name: "Insights" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Copilot" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Data analyst" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Advisor" })).toBeVisible();
 
@@ -19,6 +20,7 @@ test.describe("Admin insights", () => {
   test("the data analyst answers a question and shows the data it read", async ({ page }) => {
     await signIn(page, ADMIN);
     await page.goto("/admin/insights");
+    await page.getByRole("button", { name: "Data analyst" }).click();
 
     await page.getByRole("button", { name: "How much revenue have we made?" }).click();
 
@@ -31,6 +33,7 @@ test.describe("Admin insights", () => {
   test("a typed question reaches the analyst", async ({ page }) => {
     await signIn(page, ADMIN);
     await page.goto("/admin/insights");
+    await page.getByRole("button", { name: "Data analyst" }).click();
 
     await page.getByLabel("Question for the data analyst").fill("How many members do we have?");
     await page.getByRole("button", { name: "Ask" }).click();
@@ -41,6 +44,7 @@ test.describe("Admin insights", () => {
   test("an unrelated question is refused honestly", async ({ page }) => {
     await signIn(page, ADMIN);
     await page.goto("/admin/insights");
+    await page.getByRole("button", { name: "Data analyst" }).click();
 
     await page.getByLabel("Question for the data analyst").fill("What is the capital of France?");
     await page.getByRole("button", { name: "Ask" }).click();
@@ -62,6 +66,18 @@ test.describe("Admin insights", () => {
     await expect(page.getByText("Evidence").first()).toBeVisible();
     await expect(page.getByText("Do this").first()).toBeVisible();
     await expect(page.getByText(/priority/).first()).toBeVisible();
+
+    expect(problems).toEqual([]);
+  });
+
+  test("the copilot tab shows sample questions and one textbox", async ({ page }) => {
+    const problems = watchForClientErrors(page);
+    await signIn(page, ADMIN);
+    await page.goto("/admin/insights");
+
+    await expect(page.getByText("Ask the multi-agent Copilot")).toBeVisible();
+    await expect(page.getByLabel("Question for the multi-agent copilot")).toBeVisible();
+    await expect(page.getByRole("button", { name: /Both.*leaving/i })).toBeVisible();
 
     expect(problems).toEqual([]);
   });

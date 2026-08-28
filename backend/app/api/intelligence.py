@@ -1,6 +1,6 @@
-"""Admin-only agents: the data analyst and the advisor.
+"""Admin-only agents: the data analyst, the advisor, and the copilot that orchestrates both.
 
-Both are behind require_admin. Trainers and members have no route to these figures at all.
+All three are behind require_admin. Trainers and members have no route to these figures at all.
 """
 
 from typing import Annotated
@@ -10,12 +10,15 @@ from sqlalchemy.orm import Session
 
 from app.agents.advisor import workflow as advisor_workflow
 from app.agents.analyst import workflow as analyst_workflow
+from app.agents.orchestrator import workflow as orchestrator_workflow
 from app.api.deps import require_admin
 from app.db import AuditEvent, User, get_db
 from app.schemas import (
     AdvisorReport,
     AnalystAnswer,
     AnalystQuestion,
+    CopilotAnswer,
+    CopilotQuestion,
     MetricTable,
     RecommendationItem,
 )
@@ -31,6 +34,17 @@ def _as_table(metric: analytics.Metric) -> MetricTable:
         headline=metric.headline,
         columns=metric.columns,
         rows=metric.rows,
+    )
+
+
+def _as_recommendation(item) -> RecommendationItem:
+    return RecommendationItem(
+        priority=item.priority,
+        category=item.category,
+        title=item.title,
+        evidence=item.evidence,
+        action=item.action,
+        impact=item.impact,
     )
 
 
@@ -81,15 +95,37 @@ def advisor_report(
     return AdvisorReport(
         summary=state.get("summary") or "No issues found.",
         briefing=state["briefing"],
-        recommendations=[
-            RecommendationItem(
-                priority=item.priority,
-                category=item.category,
-                title=item.title,
-                evidence=item.evidence,
-                action=item.action,
-                impact=item.impact,
-            )
-            for item in findings
-        ],
+        recommendations=[_as_recommendation(item) for item in findings],
+    )
+
+
+@router.post("/copilot/ask", response_model=CopilotAnswer)
+def ask_copilot(
+    payload: CopilotQuestion,
+    current_user: Annotated[User, Depends(require_admin)],
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Supervisor that delegates to DataAgent and/or AdvisorAgent."""
+    state = orchestrator_workflow.invoke({"question": payload.question, "db": db})
+    agents = state.get("agents_used") or []
+    metrics = state.get("metrics") or []
+    findings = state.get("recommendations") or []
+
+    db.add(
+        AuditEvent(
+            actor_id=current_user.id,
+            action="copilot.queried",
+            resource_type="orchestrator",
+            resource_id=None,
+            detail=f"{payload.question[:200]} -> agents={agents}",
+        )
+    )
+    db.commit()
+
+    return CopilotAnswer(
+        question=payload.question,
+        answer=state["answer"],
+        agents_used=agents,
+        metrics=[_as_table(metric) for metric in metrics],
+        recommendations=[_as_recommendation(item) for item in findings],
     )

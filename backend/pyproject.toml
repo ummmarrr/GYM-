@@ -21,7 +21,13 @@ dependencies = [
     "python-multipart>=0.0.20",
     "sqlalchemy>=2.0.0",
     "uvicorn[standard]>=0.32.0",
+    # MCP server so Cursor / Claude Desktop can call the same gym tools FitBot uses.
+    "mcp>=1.9.0",
 ]
+
+[project.scripts]
+master-gym-mcp = "app.mcp_server:main"
+master-gym-admin-mcp = "app.mcp_admin:main"
 
 [project.optional-dependencies]
 dev = [

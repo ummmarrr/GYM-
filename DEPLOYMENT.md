@@ -291,6 +291,9 @@ to Alembic migrations instead.
 **Rolling back** is one click in Render (Deploys > pick an earlier one > Redeploy) and one click
 in Cloudflare (Deployments > pick > Rollback).
 
+**MCP servers** (`python -m app.mcp_server` / `python -m app.mcp_admin`) are for local AI tools
+on your own PC. They are not part of the Render service. See BACKEND.md for Cursor config.
+
 **The visitor logins** on the sign-in page are `member-demo@`, `trainer-demo@` and
 `admin-demo@example.com`. Recreate them at any time with:
 

@@ -257,6 +257,18 @@ class AdvisorReport(BaseModel):
     recommendations: list[RecommendationItem]
 
 
+class CopilotQuestion(BaseModel):
+    question: str = Field(min_length=3, max_length=500)
+
+
+class CopilotAnswer(BaseModel):
+    question: str
+    answer: str
+    agents_used: list[str]
+    metrics: list[MetricTable]
+    recommendations: list[RecommendationItem]
+
+
 # --- Knowledge base -------------------------------------------------------
 
 
