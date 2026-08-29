@@ -27,13 +27,13 @@ U/
 │   │   ├── agents/       # FitBot, DataAgent, AdvisorAgent, Copilot orchestrator
 │   │   ├── api/          # auth, membership, people, fitbot, knowledge, intelligence
 │   │   ├── core/         # settings and security primitives
-│   │   ├── services/     # llm, rag, gym_ops, entitlements, analytics, insights
+│   │   ├── services/     # llm, pdf_extract, rag (hybrid), gym_ops, entitlements, analytics
 │   │   ├── mcp_server.py # public gym tools for any MCP client
 │   │   ├── mcp_admin.py  # admin-only Copilot MCP (login → session token)
 │   │   ├── db.py
 │   │   └── schemas.py
 │   ├── scripts/seed.py
-│   └── tests/            # 186 tests, no network calls
+│   └── tests/            # 193 tests, no network calls
 └── frontend/
     ├── e2e/              # 46 Playwright browser tests
     └── src/
@@ -71,6 +71,19 @@ Create your admin account and some demo data:
 ```bash
 python -m scripts.seed --admin-email you@example.com --admin-password "your-password" --demo
 ```
+
+For a fuller local dataset (multiple trainers/members, all packages, classes, bookings,
+programmes — useful for testing analytics and the admin Copilot):
+
+```bash
+python -m scripts.seed --rich-demo
+# or wipe and rebuild everything:
+python -m scripts.reset_db --yes --admin-email admin@example.com --admin-password "AdminPass123" --public-demo --rich-demo
+```
+
+Seed data is stored in the database file/URL from `.env` (default local SQLite
+`backend/gym_coach.db`). It survives PC restarts; it is cleared only by `reset_db`, deleting
+the DB, or pointing at a different `DATABASE_URL`.
 
 The hosted site also offers three shared logins so a visitor can look around without signing
 up. Create them with `python -m scripts.seed --public-demo`:
@@ -136,8 +149,10 @@ described below (DataAgent, AdvisorAgent, and the Copilot that orchestrates both
    `get_pricing`, `get_timetable`, `search_knowledge`, `check_entitlement`, `request_login`,
    `request_signup`. Prices and timings still come from Postgres via those tools — the model
    never invents them.
-4. **Agentic RAG on documents.** `search_knowledge` retrieves with the caller's package filter
-   in SQL. If the first pass looks weak, a small judge may rewrite the query and retrieve
+4. **Advanced RAG on documents.** `search_knowledge` uses hybrid retrieve (keyword + semantic
+   RRF) with an agentic grade-and-retry loop, still filtered by the caller's package in SQL.
+   Ingest classifies scanned vs text PDFs; tables keep markdown order; images get summary +
+   detail. If the first pass looks weak, a small judge may rewrite the query and retrieve
    **once more on the same shelf** (max 2 attempts). Locked disciplines never enter that loop.
 
 FitBot never asks for a password. Signing in from the chat uses a real form that posts
@@ -239,7 +254,7 @@ cd backend
 python -m pytest
 ```
 
-186 tests covering agent routing and safety logic, FitBot tools, agentic RAG, the Copilot
+193 tests covering agent routing and safety logic, FitBot tools, hybrid + agentic RAG, the Copilot
 orchestrator, MCP admin auth, authentication, role boundaries, package entitlements, the
 document access ladder, conversation privacy, metric correctness, provider fallback and
 front-desk answers. The model is stubbed, so the suite is fast, free and offline.

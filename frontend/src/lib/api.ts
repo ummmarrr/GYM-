@@ -101,6 +101,7 @@ export interface KnowledgeDoc {
   filename: string;
   discipline: string;
   chunk_count: number;
+  ingest_mode?: string;
   created_at: string;
 }
 

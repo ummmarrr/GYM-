@@ -37,9 +37,10 @@ FITBOT_TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec(
         name="search_knowledge",
         description=(
-            "Search the gym's approved PDFs. Pass the coaching discipline the question is about. "
-            "Documents outside the caller's package are never returned. Weak first hits may be "
-            "retried once with a rewritten query on the same shelf."
+            "Search the gym's approved PDFs with hybrid retrieval (keyword + semantic) and "
+            "agentic retry. Pass the coaching discipline the question is about. Documents "
+            "outside the caller's package are never returned. Weak first hits may be retried "
+            "once with a rewritten query on the same shelf."
         ),
         parameters={
             "type": "object",

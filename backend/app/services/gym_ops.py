@@ -73,9 +73,12 @@ def _clip_chunk(text: str, limit: int = 500) -> str:
 
 
 def _render_chunks(chunks: list[RetrievedChunk]) -> str:
-    return "\n".join(
-        f"[{chunk.source} p{chunk.page or '?'}] {_clip_chunk(chunk.text)}" for chunk in chunks
-    )
+    lines = []
+    for chunk in chunks:
+        kind = getattr(chunk, "kind", None) or "text"
+        label = f"[{chunk.source} p{chunk.page or '?'} | {kind}]"
+        lines.append(f"{label} {_clip_chunk(chunk.text)}")
+    return "\n".join(lines)
 
 
 def parse_retrieval_grade(raw: str) -> tuple[bool, str]:

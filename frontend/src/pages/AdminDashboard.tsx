@@ -90,7 +90,9 @@ export default function AdminDashboard() {
     await run(async () => {
       const document = await api.uploadDocument(file, discipline);
       setFile(null);
-      return `${document.filename} ingested into ${document.discipline} (${document.chunk_count} chunks).`;
+      return `${document.filename} ingested into ${document.discipline} (${document.chunk_count} chunks${
+        document.ingest_mode ? `, ${document.ingest_mode}` : ""
+      }).`;
     });
     setUploading(false);
   };
@@ -356,7 +358,9 @@ export default function AdminDashboard() {
                     <Badge>{document.discipline}</Badge>
                   </div>
                   <p className="mt-1 text-xs text-slate-500">
-                    {document.chunk_count} chunks · added {longDate(document.created_at)}
+                    {document.chunk_count} chunks
+                    {document.ingest_mode ? ` · ${document.ingest_mode}` : ""} · added{" "}
+                    {longDate(document.created_at)}
                   </p>
                 </div>
                 <Button

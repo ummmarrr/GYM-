@@ -18,7 +18,7 @@ from sqlalchemy.engine import make_url
 
 from app.core.config import get_settings
 from app.db import Base, Role, SessionLocal, engine, initialize_database, is_sqlite
-from scripts.seed import seed_demo, seed_public_demo, upsert_user
+from scripts.seed import seed_demo, seed_public_demo, seed_rich_demo, upsert_user
 
 MIN_PASSWORD_LENGTH = 8
 
@@ -51,6 +51,11 @@ def main() -> int:
         action="store_true",
         help="Also add the read-only logins advertised on the sign-in page.",
     )
+    parser.add_argument(
+        "--rich-demo",
+        action="store_true",
+        help="Also add the full test dataset (trainers, members, classes, bookings, programmes).",
+    )
     args = parser.parse_args()
 
     if args.admin_password and len(args.admin_password) < MIN_PASSWORD_LENGTH:
@@ -74,6 +79,8 @@ def main() -> int:
                 seed_demo(db)
             if args.public_demo:
                 seed_public_demo(db)
+            if args.rich_demo:
+                seed_rich_demo(db)
             db.commit()
     else:
         print("Next: python -m scripts.seed --admin-email ... --admin-password ...")

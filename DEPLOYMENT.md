@@ -239,7 +239,8 @@ Work through these in order. Each one exercises a different layer.
    database and your account is already there.
 5. **Refresh the page while on `/dashboard`.** It should reload normally, proving `_redirects`
    is working.
-6. **Upload a PDF** from the admin knowledge page and ask FitBot about its contents.
+6. **Upload a PDF** from the admin knowledge page and ask FitBot about its contents
+   (text PDFs extract directly; scanned PDFs need `GEMINI_API_KEY` for vision OCR).
 
 If step 1 fails but the API health check passes, it is almost always `FRONTEND_ORIGIN`.
 
@@ -282,10 +283,13 @@ data is disposable, rebuild it:
 ```powershell
 cd backend
 ..\.venv\Scripts\python.exe -m scripts.reset_db --yes --admin-email you@example.com --admin-password "..." --demo
+# Optional: also restore shared sign-in demos and/or a full local test dataset
+# ..\.venv\Scripts\python.exe -m scripts.reset_db --yes --admin-email ... --admin-password "..." --public-demo --rich-demo
 ```
 
 That drops the schema, recreates it from the current models, reseeds the packages and puts your
-admin back. Uploaded PDFs are cleared too, so re-upload them. Once you have real members, switch
+admin back. `--rich-demo` adds the fuller trainer/member/class/booking/programme set for local
+testing. Uploaded PDFs are cleared too, so re-upload them. Once you have real members, switch
 to Alembic migrations instead.
 
 **Rolling back** is one click in Render (Deploys > pick an earlier one > Redeploy) and one click

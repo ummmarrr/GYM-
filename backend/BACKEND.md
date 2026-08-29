@@ -31,14 +31,14 @@ cases.
 | Database toolkit | SQLAlchemy 2.0 | One set of models works on SQLite and Postgres. |
 | Database | SQLite locally, Postgres (Neon) hosted | No setup to start, real database when live. |
 | Vector search | pgvector | Embeddings live in the same database as the data, so one SQL query can filter *and* rank. |
-| PDF reading | PyMuPDF (`pymupdf`) | Fast, pure text extraction, no external binary. |
+| PDF reading | PyMuPDF + Gemini vision OCR | Text PDFs extract directly; scanned PDFs OCR via vision. |
 | AI flow control | LangGraph | The steps of the chat are separate named nodes, so each one can be tested alone. |
 | Text generation | Gemini first, Groq second | Two free tiers used in order last longer than one. |
 | Embeddings | `gemini-embedding-001` at 768 dimensions | Free, and 768 keeps rows small. |
 | Passwords | Argon2 through `pwdlib` | Argon2 is the current recommended password hash. |
 | Tokens | `PyJWT` (HS256) | Small, stateless, no session table needed. |
 | Settings | `pydantic-settings` | Reads `.env`, checks types, one place for defaults. |
-| Tests | pytest | 186 tests, no network calls. |
+| Tests | pytest | 193 tests, no network calls. |
 | Linting | ruff | Fast, replaces flake8 + isort. |
 
 Python 3.11 or newer. The hosted service pins 3.14.3 in `render.yaml`.
@@ -78,16 +78,17 @@ backend/
 │   └── services/
 │       ├── llm.py            Gemini → Groq fallback + generate_with_tools
 │       ├── embeddings.py     Gemini embedding client
-│       ├── rag.py            PDF ingest, chunking, vector search
+│       ├── pdf_extract.py    Scanned-vs-text detect, OCR, tables, image summary/detail
+│       ├── rag.py            Ingest + hybrid (keyword + semantic RRF) retrieve
 │       ├── gym_ops.py        Shared tools + agentic search_documents
 │       ├── entitlements.py   What a package allows
 │       ├── analytics.py      Vetted metric queries
 │       ├── insights.py       Recommendation rules
 │       └── front_desk.py     Price and timetable text from the database
 ├── scripts/
-│   ├── seed.py               Create the first admin and demo data
-│   └── reset_db.py           Drop and rebuild the schema
-└── tests/                    186 tests
+│   ├── seed.py               Create admin, --demo / --public-demo / --rich-demo datasets
+│   └── reset_db.py           Drop schema, recreate packages, optional re-seed
+└── tests/                    193 tests
 ```
 
 The rule the layout follows: **`api/` handles HTTP, `services/` holds the thinking, `agents/`
@@ -243,11 +244,13 @@ than only in code.
 nullable because visitors chat too. `chat_messages.sources_json` stores the citations as JSON.
 
 **`knowledge_documents`** — one row per uploaded PDF. `document_hash` is a SHA-256 of the file
-and is unique, so uploading the same PDF twice is a no-op.
+and is unique, so uploading the same PDF twice is a no-op. `ingest_mode` is `direct` (selectable
+text) or `ocr` (scanned pages via Gemini vision).
 
 **`knowledge_chunks`** — the searchable pieces. `document_hash`, `source`, `page`,
-`discipline` (indexed), `content`, and `embedding`. The embedding column is `Vector(768)` on
-Postgres and plain `Text` on SQLite, which is why vector search only works when hosted.
+`discipline` (indexed), `kind` (`text` | `table` | `image_summary` | `image_detail`),
+`content`, and `embedding`. The embedding column is `Vector(768)` on Postgres and plain `Text`
+on SQLite, which is why vector search only works when hosted.
 
 On Postgres an approximate-nearest-neighbour index is created:
 
@@ -448,8 +451,8 @@ happen to know the ID.
 
 | Method | Path | Who | What it does |
 | --- | --- | --- | --- |
-| GET | `/admin/knowledge/documents` | admin | List ingested PDFs |
-| POST | `/admin/knowledge/documents` | admin | Upload a PDF (max 20 MB) and tag it with a discipline |
+| GET | `/admin/knowledge/documents` | admin | List ingested PDFs (`ingest_mode`, chunk counts) |
+| POST | `/admin/knowledge/documents` | admin | Upload PDF (≤20 MB): classify direct vs OCR, extract text/tables/images, embed |
 | DELETE | `/admin/knowledge/documents/{id}` | admin | Delete the document and its chunks |
 
 Only admins touch this. Members never see documents directly; they only ever see FitBot's
@@ -518,7 +521,7 @@ Tools (see `app/agents/tools.py`, backed by `app/services/gym_ops.py`):
 | --- | --- |
 | `get_pricing` | Live packages from Postgres |
 | `get_timetable` | Next 7 days of classes |
-| `search_knowledge` | Agentic RAG, filtered by package |
+| `search_knowledge` | Hybrid + agentic RAG, filtered by package |
 | `check_entitlement` | Caller's plan / quota / expiry |
 | `request_login` / `request_signup` | In-chat forms — never ask for a password |
 
@@ -533,29 +536,49 @@ initial call small. Chunk text is clipped to 500 characters when rendered for th
 
 ---
 
-## 11. The knowledge base (`app/services/rag.py` + agentic layer in `gym_ops.py`)
+## 11. The knowledge base (`pdf_extract.py` + `rag.py` + agentic layer in `gym_ops.py`)
 
 ### Ingesting a PDF
 
-Unchanged: SHA-256, PyMuPDF, 1200/180 chunks, Gemini embeddings at 768 dims, HNSW on Postgres.
+Admin-only: `POST /api/admin/knowledge/documents` with form fields `file` (PDF) and
+`discipline` (`gym` | `yoga` | `mma` | `reception`).
 
-### Searching (base)
+1. Validate role, discipline, `.pdf` extension, and size (≤ 20 MB).
+2. Write bytes to a temp file (discarded after ingest — nothing stays on the app disk).
+3. SHA-256 the file; if any `knowledge_chunks` already have that hash, skip (dedup).
+4. **Classify** (`pdf_extract.is_scanned_pdf`): average selectable chars/page &lt; 40 → scanned.
+5. **Direct path** (text PDF):
+   - Extract selectable text → 1200/180 chunks (`kind=text`).
+   - Detect tables via PyMuPDF `find_tables` → markdown with row/column order (`kind=table`).
+   - Extract embedded images → Gemini vision writes **both** a short `image_summary` and a
+     longer `image_detail` passage (form cues + any readable labels).
+6. **OCR path** (scanned PDF): render each page → Gemini vision OCR. Structured reply is split
+   into text / markdown tables / `[IMAGE]` summary+detail. Requires `GEMINI_API_KEY`.
+7. Embed every passage with Gemini (`768` dims). Embedding outage → `503`, nothing stored.
+8. Insert `knowledge_chunks` (hash, source, page, discipline, **kind**, content, embedding).
+9. Insert `knowledge_documents` (includes **ingest_mode**) + `knowledge.uploaded` audit row.
 
-```python
-select(KnowledgeChunk)
-  .where(KnowledgeChunk.discipline.in_(allowed))
-  .order_by(KnowledgeChunk.embedding.cosine_distance(embedded))
-```
+`initialize_database()` also `ALTER`s older DBs to add `ingest_mode` / `kind` if missing.
 
-Filtering happens **inside** the query, before ranking.
+### Hybrid search (base retrieve)
+
+Not semantic-only. `KnowledgeBase.retrieve`:
+
+1. Filter by allowed disciplines in SQL (package shelf never widens).
+2. **Keyword leg** — token overlap scoring over chunk text.
+3. **Semantic leg** — `cosine_distance` / HNSW on embeddings (Postgres).
+4. **Reciprocal Rank Fusion (RRF)** merges the two ranked lists (`k=60`).
+5. Return top-N with `kind` so the model sees whether a hit is text, table, or image.
 
 ### Agentic RAG (`search_documents` in `gym_ops.py`)
+
+Still wraps hybrid retrieve:
 
 1. Retrieve on the requested shelf (package filter unchanged).
 2. Locked shelf or empty shelf → stop. No judge call.
 3. If chunks exist and an LLM is configured → grade with a tiny JSON judge
    `{"enough": bool, "rewrite": "..."}`.
-4. If not enough and rewrite is set → **one** more retrieve on the **same** shelf
+4. If not enough and rewrite is set → **one** more hybrid retrieve on the **same** shelf
    (`MAX_RETRIEVAL_ATTEMPTS = 2`).
 5. No LLM / unreadable JSON → keep the first pass.
 
@@ -739,7 +762,7 @@ cd backend
 python -m pytest
 ```
 
-**186 tests, no network calls**, so the suite is fast, free and works offline.
+**193 tests, no network calls**, so the suite is fast, free and works offline.
 
 | File | Tests | What it protects |
 | --- | --- | --- |
@@ -754,6 +777,7 @@ python -m pytest
 | `test_membership.py` | 10 | Entitlements, booking rules, quotas, expiry |
 | `test_auth.py` | 9 | Registration, role escalation blocked, login errors |
 | `test_orchestrator.py` | 9 | Copilot routing, tools, admin-only endpoint |
+| `test_pdf_hybrid_rag.py` | 7 | Scanned-vs-text detect, OCR split, table order, RRF fusion |
 | `test_agentic_rag.py` | 8 | Grade grade, retry, locked shelf, max 2 attempts |
 | `test_tools.py` | 7 | FitBot tools, gym_ops, public MCP tool names |
 | `test_mcp_admin.py` | 7 | Admin MCP login → token, member rejection |
@@ -808,6 +832,17 @@ python -m scripts.seed --admin-email you@example.com --admin-password "your-pass
 | `--admin-name` | Display name, defaults to "Master GYM Admin" |
 | `--demo` | A trainer, a member with a Performance package and a profile, and three classes |
 | `--public-demo` | The three shared read-only logins shown on the sign-in page |
+| `--rich-demo` | Full local test dataset: 3 trainers, 8 members across every package (plus a lapsed and an unsubscribed member), a week of classes at varied fill levels, bookings, and programmes — enough for analytics / Copilot / entitlements |
+
+Example for a ready-to-test local DB:
+
+```bash
+python -m scripts.reset_db --yes --admin-email admin@example.com --admin-password "AdminPass123" --public-demo --rich-demo
+```
+
+Demo rows live in the configured database (local default: `sqlite:///./gym_coach.db`). They
+survive PC and server restarts until you delete the DB file, run `reset_db`, or switch
+`DATABASE_URL`.
 
 Run the server:
 
@@ -817,8 +852,10 @@ python -m uvicorn app.main:app --reload --port 8000
 
 Interactive docs at http://127.0.0.1:8000/docs.
 
-`scripts/reset_db.py --yes` drops and rebuilds the schema, then re-seeds. Use it after changing
-a model, because `initialize_database()` creates missing tables but never alters existing ones.
+`scripts/reset_db.py --yes` drops and rebuilds the schema, then re-seeds (supports the same
+`--demo`, `--public-demo`, and `--rich-demo` flags). Use it after changing a model, because
+`initialize_database()` creates missing tables but never alters existing ones. Uploaded PDFs
+are cleared too and must be re-uploaded.
 
 ---
 

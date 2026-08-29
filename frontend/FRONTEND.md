@@ -324,9 +324,9 @@ plan; the banner makes it read as expected rather than broken.
 ### The typed surface
 
 Every backend response has a matching interface: `User`, `Plan`, `Entitlements`, `GymClass`,
-`Person`, `Programme`, `Profile`, `Overview`, `KnowledgeDoc`, `MetricTable`, `AnalystAnswer`,
-`Recommendation`, `AdvisorReport`, `ChatReply`, plus the unions `Role`, `Priority` and
-`ChatAction`.
+`Person`, `Programme`, `Profile`, `Overview`, `KnowledgeDoc` (includes optional `ingest_mode`),
+`MetricTable`, `AnalystAnswer`, `Recommendation`, `AdvisorReport`, `ChatReply`, plus the unions
+`Role`, `Priority` and `ChatAction`.
 
 About thirty functions grouped on one `api` object, named after intent rather than HTTP:
 
@@ -455,7 +455,8 @@ once rather than in three steps.
 4. The accounts table, where the actions are inline controls rather than modals: a role
    dropdown, a trainer dropdown, and a clickable active badge that toggles the account.
 5. The FitBot knowledge base — a PDF upload with a discipline dropdown, and the document list
-   with chunk counts and delete buttons.
+   with chunk counts, ingest mode (`direct` vs `ocr`), and delete buttons. Scanned PDFs are
+   OCR'd on the backend (needs Gemini); text PDFs extract tables and image summary/detail too.
 
 Small but real bug fix worth keeping: the role dropdown captures its value into a variable
 before the `await`, because a controlled `<select>` would otherwise snap back to the old value

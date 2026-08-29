@@ -277,4 +277,5 @@ class DocumentResponse(ORMModel):
     filename: str
     discipline: str
     chunk_count: int
+    ingest_mode: str = "direct"
     created_at: datetime

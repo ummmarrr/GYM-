@@ -185,6 +185,8 @@ class KnowledgeDocument(Base):
     discipline: Mapped[str] = mapped_column(String(50))
     document_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     chunk_count: Mapped[int] = mapped_column(default=0)
+    # "direct" = selectable text path; "ocr" = scanned pages via vision OCR.
+    ingest_mode: Mapped[str] = mapped_column(String(20), default="direct")
     uploaded_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
@@ -193,7 +195,8 @@ class KnowledgeChunk(Base):
     """One passage of an approved PDF, with the embedding used to find it.
 
     Vectors live beside the documents they describe so a search can filter by discipline and
-    rank by similarity in a single query.
+    rank by similarity in a single query. ``kind`` distinguishes plain text, tables, and
+    image summary/detail passages produced during ingest.
     """
 
     __tablename__ = "knowledge_chunks"
@@ -203,6 +206,7 @@ class KnowledgeChunk(Base):
     source: Mapped[str] = mapped_column(String(255))
     page: Mapped[int | None] = mapped_column()
     discipline: Mapped[str] = mapped_column(String(50), index=True)
+    kind: Mapped[str] = mapped_column(String(30), default="text")
     content: Mapped[str] = mapped_column(Text)
     # SQLite has no vector type. The tests run there and stub retrieval out; search itself
     # requires Postgres.
@@ -280,12 +284,40 @@ def default_plans() -> list[MembershipPlan]:
     ]
 
 
+def _ensure_column(conn, table: str, column: str, ddl: str) -> None:
+    """Add a column when create_all cannot alter an already-existing table."""
+    if is_sqlite:
+        rows = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
+        names = {row[1] for row in rows}
+        if column not in names:
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {ddl}"))
+        return
+    exists = conn.execute(
+        text(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_name = :table AND column_name = :column"
+        ),
+        {"table": table, "column": column},
+    ).scalar()
+    if not exists:
+        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {ddl}"))
+
+
 def initialize_database() -> None:
     if not is_sqlite:
         with engine.begin() as conn:
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
 
     Base.metadata.create_all(engine)
+
+    with engine.begin() as conn:
+        _ensure_column(
+            conn,
+            "knowledge_documents",
+            "ingest_mode",
+            "ingest_mode VARCHAR(20) DEFAULT 'direct'",
+        )
+        _ensure_column(conn, "knowledge_chunks", "kind", "kind VARCHAR(30) DEFAULT 'text'")
 
     if not is_sqlite:
         # Approximate-nearest-neighbour index. Postgres falls back to an exact scan without

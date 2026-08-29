@@ -51,10 +51,10 @@ the database and report in plain English.
 | **LangGraph** | AI flow control | Each step is a named, testable node instead of one long function |
 | **Google Gemini** | Text and embeddings | Generous free tier, good quality |
 | **Groq (Llama 3.1 8B)** | Backup model | 14,400 free requests a day, no card |
-| **PyMuPDF** | PDF text extraction | Fast, no external binary |
+| **PyMuPDF + Gemini vision** | PDF ingest | Text extract or OCR; tables + image summary/detail |
 | **PyJWT** | Tokens | Stateless auth, no session table |
 | **pwdlib + Argon2** | Password hashing | The current recommended algorithm |
-| **pytest** | Tests | 186 of them, offline |
+| **pytest** | Tests | 193 of them, offline |
 | **ruff** | Linting and imports | Fast, replaces several tools |
 | **Uvicorn** | ASGI server | The standard FastAPI pairing |
 
@@ -153,12 +153,14 @@ out of things.
 
 **The result.** Selling a tier and unlocking its material cannot drift apart, because there is
 only one list. And the filter runs in the SQL `WHERE` clause, before ranking, so an excluded
-document is never even a candidate:
+document is never even a candidate. Retrieve is **hybrid** (keyword token overlap + semantic
+cosine ranking, fused with RRF), still filtered in SQL first:
 
 ```python
-select(KnowledgeChunk)
-  .where(KnowledgeChunk.discipline.in_(allowed))
-  .order_by(KnowledgeChunk.embedding.cosine_distance(embedded))
+# Both legs already restricted to KnowledgeChunk.discipline.in_(allowed)
+keyword_hits = keyword_rank(query, allowed)
+semantic_hits = semantic_rank(query, allowed)  # cosine_distance / HNSW on Postgres
+fused = rrf_fuse([keyword_hits, semantic_hits], limit)
 ```
 
 Filtering after ranking would let an excluded document influence which chunks came back. This
@@ -314,7 +316,7 @@ Have these ready. Specifics make a project sound real.
 
 | Fact | Number |
 | --- | --- |
-| Backend tests, all offline | **186** |
+| Backend tests, all offline | **193** |
 | Playwright browser tests | **46** |
 | Total automated tests | **232** |
 | Database tables | **12** |
@@ -349,14 +351,14 @@ Pick four. Each one names a technology, an action and a result.
 > - Designed a LangGraph FitBot with a deterministic safety gate and triage, then a
 >   tool-calling respond step (pricing, timetable, entitlements, RAG); combined with a
 >   Gemini→Groq fallback chain and quota cooldown on free-tier limits.
-> - Built agentic RAG over admin-uploaded PDFs using pgvector: filter by membership tier inside
->   SQL, then optionally rewrite the query once if a judge says the first chunks are weak —
->   never widening the package shelf.
+> - Built advanced RAG over admin-uploaded PDFs: scanned-vs-text ingest (OCR, tables with order
+>   preserved, image summary + detail), hybrid keyword+semantic RRF retrieve, and an agentic
+>   grade-and-retry loop — membership filtering stays inside SQL and never widens the shelf.
 > - Shipped an admin Copilot that orchestrates DataAgent and AdvisorAgent, plus two MCP servers
 >   (gym tools and admin-only Copilot with login → short-lived session token).
 > - Admin analytics use a registry of vetted SQL queries instead of model-generated SQL,
 >   eliminating both hallucinated figures and the risk of an LLM reading password hashes.
-> - Wrote 232 automated tests — 186 pytest with the model stubbed, 46 Playwright on real
+> - Wrote 239 automated tests — 193 pytest with the model stubbed, 46 Playwright on real
 >   Chromium that also fail on any console error or 5xx response.
 > - Deployed on free tiers end to end (Render, Cloudflare Pages, Neon) with a `render.yaml`
 >   blueprint, migrating off disk-backed SQLite and ChromaDB to survive an ephemeral filesystem.
@@ -421,7 +423,8 @@ Order matters. Each step should show something the previous one could not.
    do?"** — shows agents used (DataAgent + AdvisorAgent). Explain the orchestrator.
 6. **Advisor tab** — prioritised recommendations with evidence. Note findings are computed.
 
-If you have seven minutes, add uploading a PDF, asking FitBot about it (agentic RAG / citation),
+If you have seven minutes, add uploading a PDF (text or scanned), asking FitBot about it
+(hybrid + agentic RAG / citation),
 and a quick note that admin Copilot is also available as MCP with login → session token.
 
 ---

@@ -376,6 +376,10 @@ Then, for the shared read-only logins the sign-in page advertises:
 ..\.venv\Scripts\python.exe -m scripts.seed --public-demo
 ```
 
+For local testing with a denser dataset (multiple trainers/members, all packages, classes,
+bookings, programmes), add `--rich-demo` on seed or on `reset_db`. That data lives in the DB
+and survives restarts until you reset or change `DATABASE_URL`.
+
 That creates `member-demo@`, `trainer-demo@` and `admin-demo@example.com` with the passwords
 printed on the sign-in page. Because those passwords are public, the API refuses every write
 from those three addresses — the list is `demo_account_emails` in `app/core/config.py`, and the
@@ -397,7 +401,7 @@ Each step exercises a different layer, so the first failure tells you where the 
 | 4 | Ask FitBot how to improve squat depth | Gemini or Groq is reachable from Render |
 | 5 | Sign in as your admin | Auth, Argon2 verification and JWT signing all work |
 | 6 | Refresh the page while on `/dashboard` | `_redirects` reached `dist/` |
-| 7 | Upload a PDF, then ask FitBot about it | PyMuPDF, embeddings and pgvector all work |
+| 7 | Upload a PDF (text or scan), then ask FitBot about it | Ingest (direct/OCR), embeddings, hybrid retrieve + pgvector |
 | 8 | Admin → Insights → ask a question | The analyst agent and metric registry work |
 
 If step 1 works but step 2 fails, it is almost always `FRONTEND_ORIGIN`.

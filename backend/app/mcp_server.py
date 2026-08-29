@@ -52,9 +52,10 @@ def get_timetable() -> str:
 
 @mcp.tool()
 def search_knowledge(query: str, discipline: str = "gym") -> str:
-    """Search admin-uploaded PDFs. Staff MCP access can read every discipline shelf.
+    """Search admin-uploaded PDFs with hybrid (keyword + semantic) + agentic retry.
 
-    Weak first hits may be retrieved once more with a rewritten query; the shelf never widens.
+    Staff MCP access can read every discipline shelf. Weak first hits may be retrieved once
+    more with a rewritten query; the shelf never widens.
     """
     db = SessionLocal()
     try:
