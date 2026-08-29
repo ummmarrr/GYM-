@@ -13,16 +13,29 @@ can actually do is decided by the package they bought, and that is enforced on t
 | Agent flow | LangGraph | Safety and auth stay as code branches; the rest is tool-calling |
 | Tools / MCP | Shared `gym_ops` + two MCP servers | FitBot and Cursor clients call the same operations |
 | LLM | Gemini, falling back to Groq | Two free tiers in sequence outlast either one alone |
-| Retrieval | pgvector + agentic retry | Filter by package in SQL; weak hits get one reformulated pass |
+| PDF ingest | PyMuPDF + Gemini vision OCR | Text PDFs extract directly; scanned PDFs are OCR'd |
+| Retrieval | Hybrid (keyword + semantic RRF) + agentic retry | Exact terms and meaning both matter; weak hits get one rewrite |
+| Admin AI | Copilot over DataAgent + AdvisorAgent | One textbox; supervisor routes to specialists |
 | API | FastAPI + SQLAlchemy | SQLite locally, Postgres when hosted — same models either way |
 | Auth | Argon2 password hashing + JWT | Argon2 is the current recommendation for passwords |
-| Web app | React + Vite + Tailwind v4 | Fast dev loop, no UI library to fight |
+| Web app | React + Vite + Tailwind v4 | Premium dark UI; fast dev loop |
+
+## Docs map
+
+| Doc | What it covers |
+| --- | --- |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Deep dive: FitBot, hybrid/agentic RAG, Copilot, MCP, data model |
+| [backend/BACKEND.md](backend/BACKEND.md) | API, services, seed flags, knowledge ingest steps |
+| [frontend/FRONTEND.md](frontend/FRONTEND.md) | Pages, components, API client, E2E notes |
+| [EXPLANATION.md](EXPLANATION.md) | Design decisions and interview / resume storytelling |
+| [DEPLOYMENT.md](DEPLOYMENT.md) / [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) | Hosting on Render, Cloudflare Pages, Neon |
 
 ## Project layout
 
 ```
-U/
-├── backend/          # FastAPI app, agents, MCP servers, tests
+GYM-/
+├── ARCHITECTURE.md
+├── backend/              # FastAPI app, agents, MCP servers, tests
 │   ├── app/
 │   │   ├── agents/       # FitBot, DataAgent, AdvisorAgent, Copilot orchestrator
 │   │   ├── api/          # auth, membership, people, fitbot, knowledge, intelligence
@@ -32,14 +45,17 @@ U/
 │   │   ├── mcp_admin.py  # admin-only Copilot MCP (login → session token)
 │   │   ├── db.py
 │   │   └── schemas.py
-│   ├── scripts/seed.py
+│   ├── scripts/
+│   │   ├── seed.py       # --demo / --public-demo / --rich-demo
+│   │   └── reset_db.py   # drop schema + optional re-seed
 │   └── tests/            # 193 tests, no network calls
 └── frontend/
     ├── e2e/              # 46 Playwright browser tests
+    ├── design-preview.html
     └── src/
         ├── components/
         ├── context/
-        ├── lib/
+        ├── lib/          # api client, media URLs
         └── pages/        # landing, packages, auth, dashboards, Insights (3 tabs)
 ```
 
@@ -63,6 +79,7 @@ Then edit `backend/.env`:
 - `JWT_SECRET` — generate one with
   `python -c "import secrets; print(secrets.token_urlsafe(48))"`
 - `GEMINI_API_KEY` — free key from https://aistudio.google.com/apikey
+  (needed for embeddings, FitBot answers, scanned-PDF OCR, and image captions)
 - `GROQ_API_KEY` — optional but recommended, free and no card, from
   https://console.groq.com/keys. FitBot uses it when Gemini's daily quota runs out.
 
@@ -81,12 +98,17 @@ python -m scripts.seed --rich-demo
 python -m scripts.reset_db --yes --admin-email admin@example.com --admin-password "AdminPass123" --public-demo --rich-demo
 ```
 
-Seed data is stored in the database file/URL from `.env` (default local SQLite
-`backend/gym_coach.db`). It survives PC restarts; it is cleared only by `reset_db`, deleting
-the DB, or pointing at a different `DATABASE_URL`.
+| Seed flag | What you get |
+| --- | --- |
+| `--demo` | One trainer, one member (Performance), three classes |
+| `--public-demo` | The three read-only logins on the sign-in page |
+| `--rich-demo` | 3 trainers (one idle), 8 members across every package (plus lapsed / no package), a week of classes at varied fill, bookings, programmes |
 
-The hosted site also offers three shared logins so a visitor can look around without signing
-up. Create them with `python -m scripts.seed --public-demo`:
+Seed data lives in the database from `.env` (default local SQLite `backend/gym_coach.db`).
+It survives PC restarts; it is cleared only by `reset_db`, deleting the DB, or changing
+`DATABASE_URL`.
+
+Shared read-only logins (`python -m scripts.seed --public-demo`):
 
 | Role | Email | Password |
 | --- | --- | --- |
@@ -94,9 +116,9 @@ up. Create them with `python -m scripts.seed --public-demo`:
 | Trainer | trainer-demo@example.com | DemoTrainer123 |
 | Admin | admin-demo@example.com | DemoAdmin123 |
 
-Their passwords are printed on the sign-in page, so the API rejects any write from those
-addresses; the list lives in `demo_account_emails` in `app/core/config.py`. Asking the data
-agent and booking a class are the two exceptions, since neither outlasts the visit.
+Their passwords are printed on the sign-in page, so the API rejects writes from those
+addresses (`demo_account_emails` in `app/core/config.py`). Asking the data/Copilot agents and
+booking a class are the exceptions, since neither outlasts the visit in a harmful way.
 
 Run the API:
 
@@ -147,16 +169,27 @@ described below (DataAgent, AdvisorAgent, and the Copilot that orchestrates both
    package without personalised programming gets an upgrade prompt.
 3. **Tool-calling agent for everything else.** After triage, the model picks tools:
    `get_pricing`, `get_timetable`, `search_knowledge`, `check_entitlement`, `request_login`,
-   `request_signup`. Prices and timings still come from Postgres via those tools — the model
-   never invents them.
+   `request_signup`. Prices and timings still come from the database via those tools — the
+   model never invents them.
 4. **Advanced RAG on documents.** `search_knowledge` uses hybrid retrieve (keyword + semantic
    RRF) with an agentic grade-and-retry loop, still filtered by the caller's package in SQL.
-   Ingest classifies scanned vs text PDFs; tables keep markdown order; images get summary +
-   detail. If the first pass looks weak, a small judge may rewrite the query and retrieve
-   **once more on the same shelf** (max 2 attempts). Locked disciplines never enter that loop.
+   If the first pass looks weak, a small judge may rewrite the query and retrieve **once more
+   on the same shelf** (max 2 attempts). Locked disciplines never enter that loop.
 
 FitBot never asks for a password. Signing in from the chat uses a real form that posts
 straight to the API, so credentials never enter the conversation transcript.
+
+### Knowledge base (PDF ingest)
+
+Admins upload PDFs under **Admin console → knowledge**. Each file is tagged with a discipline
+(`gym` | `yoga` | `mma` | `reception`).
+
+1. **Classify** — enough selectable text → direct extract; almost none → treat as scanned.
+2. **Direct** — extract text (chunked), tables as markdown (row order kept), embedded images
+   as both a short **summary** and a longer **detail** (via Gemini vision).
+3. **Scanned** — render pages → Gemini vision OCR → same kinds of passages (text / table /
+   image summary + detail). Needs `GEMINI_API_KEY`.
+4. Embed and store chunks with a `kind`, plus `ingest_mode` (`direct` | `ocr`) on the document.
 
 ### Who FitBot may quote what to
 
@@ -193,7 +226,8 @@ Three things keep FitBot answering:
   the route cannot use are left out, which cut a typical call from about 2,500 tokens to 740.
   Output is capped too, since it counts against the same quota.
 
-Both keys are optional. With neither, FitBot explains that it needs one; with one, it uses it.
+Both keys are optional for basic chat. With neither, FitBot explains that it needs one. Scanned
+PDF OCR and image captions specifically need Gemini.
 
 ## The admin agents (Insights)
 
@@ -231,7 +265,7 @@ prioritised list, just without the written briefing.
 Current checks include renewals due, unfulfilled programme promises (members paying for a
 trainer-written plan who never received one), members who stopped booking, under- and
 over-subscribed classes, trainer overload and idle trainers, knowledge base gaps, and stalled
-signup growth.
+signup growth. `--rich-demo` seeds data that exercises several of these signals.
 
 ## MCP servers (local AI tools on your machine)
 
@@ -240,7 +274,7 @@ a shared PC.
 
 | Entry | Command | Audience |
 | --- | --- | --- |
-| Gym tools | `python -m app.mcp_server` | Pricing, timetable, RAG, metrics, book class |
+| Gym tools | `python -m app.mcp_server` | Pricing, timetable, hybrid RAG, metrics, book class |
 | Admin Copilot | `python -m app.mcp_admin` | Admin login → session token → `ask_copilot` |
 
 Admin MCP auth: call `admin_login(email, password)` once; pass the returned `session_token` to
@@ -254,10 +288,11 @@ cd backend
 python -m pytest
 ```
 
-193 tests covering agent routing and safety logic, FitBot tools, hybrid + agentic RAG, the Copilot
-orchestrator, MCP admin auth, authentication, role boundaries, package entitlements, the
-document access ladder, conversation privacy, metric correctness, provider fallback and
-front-desk answers. The model is stubbed, so the suite is fast, free and offline.
+193 tests covering agent routing and safety logic, FitBot tools, PDF classify / OCR split /
+hybrid RRF, agentic RAG, the Copilot orchestrator, MCP admin auth, authentication, role
+boundaries, package entitlements, the document access ladder, conversation privacy, metric
+correctness, provider fallback and front-desk answers. The model is stubbed, so the suite is
+fast, free and offline.
 
 ```bash
 cd frontend
@@ -296,7 +331,11 @@ $env:E2E_ADMIN_PASSWORD = "your-admin-password"
 - **Payments are simulated.** Choosing a package activates it immediately. No card details
   are collected anywhere. Swap `purchase_membership` in `app/api/membership.py` for a payment
   provider callback before charging anyone.
-- **SQLite has no migrations here.** Tables are created on startup. If you change a model,
-  delete `backend/gym_coach.db` and re-run the seed script, or add Alembic.
+- **SQLite has no migrations here.** Tables are created on startup; a few knowledge columns
+  are `ALTER`ed if missing. After a model change, prefer
+  `python -m scripts.reset_db --yes ...` (or delete `backend/gym_coach.db` and re-seed), or
+  add Alembic before you have real members.
 - **Admin accounts are created from the server only**, via `scripts/seed.py` or by an existing
   admin. Self-signup always produces a member, whatever the request body says.
+- **Vector search needs Postgres + pgvector** when hosted. Local SQLite still stores chunks for
+  ingest tests; hybrid keyword ranking works locally, full semantic ranking is for Neon.
