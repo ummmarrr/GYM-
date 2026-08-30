@@ -1,6 +1,8 @@
 """FitBot chat endpoint. Works for signed-out visitors and for members alike."""
 
 import json
+import logging
+from collections.abc import Iterator
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -9,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.agents.workflow import workflow
 from app.api.deps import get_current_user, get_optional_user
+from app.api.sse import event_stream, sse, text_chunks
 from app.core.config import get_settings
 from app.core.rate_limit import rate_limit
 from app.db import ChatMessage, Conversation, FitnessProfile, Role, User, get_db
@@ -16,6 +19,7 @@ from app.schemas import ChatRequest, ChatResponse, SourceCitation
 from app.services.entitlements import entitlements_for
 
 router = APIRouter(prefix="/fitbot", tags=["fitbot"])
+logger = logging.getLogger(__name__)
 
 settings = get_settings()
 # Anyone can reach this endpoint and each call spends LLM quota, so it is capped per caller.
@@ -99,18 +103,9 @@ def _history(db: Session, conversation_id: str) -> str:
     )
 
 
-@router.post("/chat", response_model=ChatResponse, dependencies=[Depends(chat_limit)])
-def chat(
-    payload: ChatRequest,
-    db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User | None, Depends(get_optional_user)],
-):
-    conversation = _load_conversation(db, payload.conversation_id, user)
-
-    # A visitor who signs in mid-chat keeps their conversation.
-    if user is not None and conversation.user_id is None:
-        conversation.user_id = user.id
-
+def _invoke_chat(
+    payload: ChatRequest, db: Session, user: User | None, conversation: Conversation
+) -> tuple[dict, list[SourceCitation]]:
     ent = entitlements_for(db, user) if user else None
     state = workflow.invoke(
         {
@@ -126,21 +121,55 @@ def chat(
             "db": db,
         }
     )
-
     sources = [
         SourceCitation(source=chunk.source, page=chunk.page, excerpt=chunk.text[:200])
         for chunk in state.get("sources", [])
     ]
-    db.add(ChatMessage(conversation_id=conversation.id, sender="user", content=payload.message))
+    return state, sources
+
+
+def _run_chat(
+    payload: ChatRequest, db: Session, user: User | None
+) -> tuple[Conversation, dict, list[SourceCitation]]:
+    conversation = _load_conversation(db, payload.conversation_id, user)
+
+    # A visitor who signs in mid-chat keeps their conversation.
+    if user is not None and conversation.user_id is None:
+        conversation.user_id = user.id
+
+    state, sources = _invoke_chat(payload, db, user, conversation)
+    return conversation, state, sources
+
+
+def _save_exchange(
+    db: Session,
+    conversation: Conversation,
+    message: str,
+    answer: str,
+    sources: list[SourceCitation],
+) -> None:
+    db.add(ChatMessage(conversation_id=conversation.id, sender="user", content=message))
     db.add(
         ChatMessage(
             conversation_id=conversation.id,
             sender="fitbot",
-            content=state["answer"],
-            sources_json=json.dumps([s.model_dump() for s in sources]) if sources else None,
+            content=answer,
+            sources_json=json.dumps([source.model_dump() for source in sources])
+            if sources
+            else None,
         )
     )
     db.commit()
+
+
+@router.post("/chat", response_model=ChatResponse, dependencies=[Depends(chat_limit)])
+def chat(
+    payload: ChatRequest,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User | None, Depends(get_optional_user)],
+):
+    conversation, state, sources = _run_chat(payload, db, user)
+    _save_exchange(db, conversation, payload.message, state["answer"], sources)
 
     return ChatResponse(
         conversation_id=conversation.id,
@@ -150,6 +179,48 @@ def chat(
         needs_human_handoff=state.get("needs_human_handoff", False),
         action=state.get("action", "none"),
     )
+
+
+@router.post("/chat/stream", dependencies=[Depends(chat_limit)])
+def stream_chat(
+    payload: ChatRequest,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User | None, Depends(get_optional_user)],
+):
+    """Stream a FitBot answer as SSE while preserving the normal chat contract."""
+
+    def events() -> Iterator[str]:
+        try:
+            conversation = _load_conversation(db, payload.conversation_id, user)
+            if user is not None and conversation.user_id is None:
+                conversation.user_id = user.id
+            yield sse("meta", {"conversation_id": conversation.id})
+
+            state, sources = _invoke_chat(payload, db, user, conversation)
+            answer = state["answer"]
+            for text in text_chunks(answer):
+                yield sse("token", {"text": text})
+
+            _save_exchange(db, conversation, payload.message, answer, sources)
+            yield sse(
+                "done",
+                {
+                    "conversation_id": conversation.id,
+                    "route": state.get("route", "gym"),
+                    "sources": [source.model_dump() for source in sources],
+                    "needs_human_handoff": state.get("needs_human_handoff", False),
+                    "action": state.get("action", "none"),
+                },
+            )
+        except Exception:
+            logger.exception("FitBot stream failed")
+            db.rollback()
+            yield sse(
+                "error",
+                {"message": "I could not reach the gym just now. Please try again in a moment."},
+            )
+
+    return event_stream(events())
 
 
 @router.get("/conversations/{conversation_id}")

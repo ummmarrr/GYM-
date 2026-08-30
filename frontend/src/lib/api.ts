@@ -208,6 +208,18 @@ export interface ChatReply {
   action: ChatAction;
 }
 
+interface ChatStreamHandlers {
+  onMeta?: (conversationId: string) => void;
+  onToken: (text: string) => void;
+  onDone: (reply: Omit<ChatReply, "answer">) => void;
+}
+
+interface StreamHandlers {
+  onMeta?: (payload: Record<string, unknown>) => void;
+  onToken: (text: string) => void;
+  onDone: (payload: Record<string, unknown>) => void;
+}
+
 const TOKEN_KEY = "mastergym.token";
 
 export const tokenStore = {
@@ -334,6 +346,173 @@ const patch = <T,>(path: string, body: unknown) =>
   request<T>(path, { method: "PATCH", body: JSON.stringify(body) });
 const remove = <T,>(path: string) => request<T>(path, { method: "DELETE" });
 
+async function openSse(
+  path: string,
+  init: RequestInit,
+  fallbackMessage: string,
+): Promise<Response> {
+  const token = tokenStore.get();
+  const stopWatching = watchColdStart();
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}/api${path}`, {
+      ...init,
+      headers: {
+        ...(init.body ? { "Content-Type": "application/json" } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...init.headers,
+      },
+    });
+    serverHasReplied = true;
+  } finally {
+    stopWatching();
+  }
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    if (response.status === 401) tokenStore.clear();
+    throw new ApiError(response.status, readDetail(body, fallbackMessage));
+  }
+  if (!response.body) throw new Error("Streaming is not supported by this browser.");
+  return response;
+}
+
+async function readSse(response: Response, handlers: StreamHandlers): Promise<void> {
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  const dispatch = (block: string) => {
+    let event = "message";
+    const data: string[] = [];
+    for (const line of block.split("\n")) {
+      if (line.startsWith("event:")) event = line.slice(6).trim();
+      if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+    }
+    if (!data.length) return;
+
+    const payload = JSON.parse(data.join("\n")) as Record<string, unknown>;
+    if (event === "meta") handlers.onMeta?.(payload);
+    else if (event === "token") handlers.onToken(String(payload.text ?? ""));
+    else if (event === "done") handlers.onDone(payload);
+    else if (event === "error") throw new Error(String(payload.message ?? "Stream failed."));
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done }).replace(/\r\n/g, "\n");
+    let boundary = buffer.indexOf("\n\n");
+    while (boundary >= 0) {
+      dispatch(buffer.slice(0, boundary));
+      buffer = buffer.slice(boundary + 2);
+      boundary = buffer.indexOf("\n\n");
+    }
+    if (done) break;
+  }
+  if (buffer.trim()) dispatch(buffer);
+}
+
+async function streamChat(
+  message: string,
+  conversationId: string | null,
+  handlers: ChatStreamHandlers,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await openSse(
+    "/fitbot/chat/stream",
+    {
+      method: "POST",
+      body: JSON.stringify({ message, conversation_id: conversationId }),
+      signal,
+    },
+    "FitBot could not start a reply. Please try again.",
+  );
+  await readSse(response, {
+    onMeta: (payload) => handlers.onMeta?.(String(payload.conversation_id ?? "")),
+    onToken: handlers.onToken,
+    onDone: (payload) => handlers.onDone(payload as Omit<ChatReply, "answer">),
+  });
+}
+
+async function streamAnalyst(
+  question: string,
+  handlers: {
+    onToken: (text: string) => void;
+    onDone: (payload: { question: string; metrics: MetricTable[] }) => void;
+  },
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await openSse(
+    "/admin/analyst/ask/stream",
+    { method: "POST", body: JSON.stringify({ question }), signal },
+    "The analyst could not start a reply. Please try again.",
+  );
+  await readSse(response, {
+    onToken: handlers.onToken,
+    onDone: (payload) =>
+      handlers.onDone({
+        question: String(payload.question ?? question),
+        metrics: (payload.metrics as MetricTable[]) ?? [],
+      }),
+  });
+}
+
+async function streamAdvisorReport(
+  handlers: {
+    onMeta?: (summary: string) => void;
+    onToken: (text: string) => void;
+    onDone: (payload: { summary: string; recommendations: Recommendation[] }) => void;
+  },
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await openSse(
+    "/admin/advisor/report/stream",
+    { method: "GET", signal },
+    "Could not start the advisor report. Please try again.",
+  );
+  await readSse(response, {
+    onMeta: (payload) => handlers.onMeta?.(String(payload.summary ?? "")),
+    onToken: handlers.onToken,
+    onDone: (payload) =>
+      handlers.onDone({
+        summary: String(payload.summary ?? ""),
+        recommendations: (payload.recommendations as Recommendation[]) ?? [],
+      }),
+  });
+}
+
+async function streamCopilot(
+  question: string,
+  handlers: {
+    onMeta?: (agents: string[]) => void;
+    onToken: (text: string) => void;
+    onDone: (payload: {
+      question: string;
+      agents_used: string[];
+      metrics: MetricTable[];
+      recommendations: Recommendation[];
+    }) => void;
+  },
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await openSse(
+    "/admin/copilot/ask/stream",
+    { method: "POST", body: JSON.stringify({ question }), signal },
+    "The copilot could not start a reply. Please try again.",
+  );
+  await readSse(response, {
+    onMeta: (payload) => handlers.onMeta?.((payload.agents_used as string[]) ?? []),
+    onToken: handlers.onToken,
+    onDone: (payload) =>
+      handlers.onDone({
+        question: String(payload.question ?? question),
+        agents_used: (payload.agents_used as string[]) ?? [],
+        metrics: (payload.metrics as MetricTable[]) ?? [],
+        recommendations: (payload.recommendations as Recommendation[]) ?? [],
+      }),
+  });
+}
+
 export const api = {
   health: () => get<{ status: string; app: string; bot: string }>("/health"),
 
@@ -446,9 +625,13 @@ export const api = {
 
   chat: (message: string, conversationId: string | null) =>
     post<ChatReply>("/fitbot/chat", { message, conversation_id: conversationId }),
+  streamChat,
 
   metrics: () => get<MetricTable[]>("/admin/analyst/metrics"),
   askAnalyst: (question: string) => post<AnalystAnswer>("/admin/analyst/ask", { question }),
+  streamAnalyst,
   advisorReport: () => get<AdvisorReport>("/admin/advisor/report"),
+  streamAdvisorReport,
   askCopilot: (question: string) => post<CopilotAnswer>("/admin/copilot/ask", { question }),
+  streamCopilot,
 };

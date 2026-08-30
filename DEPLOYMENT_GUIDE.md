@@ -402,11 +402,17 @@ Each step exercises a different layer, so the first failure tells you where the 
 | 1 | Open the site | Cloudflare is serving the build |
 | 2 | The packages page shows three plans | CORS is right, `VITE_API_URL` is right, Neon is connected |
 | 3 | Ask FitBot "what packages do you have?" | The database path works — this never calls an LLM |
-| 4 | Ask FitBot how to improve squat depth | Gemini or Groq is reachable from Render |
+| 4 | Ask FitBot how to improve squat depth | Gemini or Groq is reachable from Render; reply streams over SSE |
 | 5 | Sign in as your admin | Auth, Argon2 verification and JWT signing all work |
 | 6 | Refresh the page while on `/dashboard` | `_redirects` reached `dist/` |
 | 7 | Upload a PDF (text or scan), then ask FitBot about it | Ingest (direct/OCR), embeddings, hybrid retrieve + pgvector |
-| 8 | Admin → Insights → ask a question | The analyst agent and metric registry work |
+| 8 | Admin → Insights → ask Copilot / analyst; refresh Advisor | Streamed prose + tables/recs on `done`; metric registry |
+| 9 | Create a reception user (or promote one), open `/front-desk` | New role + route guard |
+| 10 | Member → My gym pass → Front desk Scan → Confirm | QR pass, briefing and attendance write |
+
+Camera check-in needs HTTPS (Pages already is). After the first deploy that adds reception,
+startup runs `ALTER TYPE role ADD VALUE IF NOT EXISTS 'RECEPTION'` on Neon before you create
+desk accounts.
 
 If step 1 works but step 2 fails, it is almost always `FRONTEND_ORIGIN`.
 
@@ -429,6 +435,7 @@ it never alters an existing one.**
 | New model | The table appears on the next deploy. Nothing to do. |
 | New column on an existing table | **Silently does not reach the database.** The app then fails when it reads that column. |
 | Changed column type | Same. Nothing happens. |
+| New `Role.RECEPTION` on hosted Postgres | Startup runs `ALTER TYPE role ADD VALUE IF NOT EXISTS 'RECEPTION'`. Safe to redeploy. |
 
 While the data is disposable, rebuild it:
 
@@ -531,6 +538,8 @@ The API can stay on `onrender.com` — nobody reads that URL.
 | "FitBot is not configured yet" | Neither API key is set | Add `GEMINI_API_KEY` or `GROQ_API_KEY` |
 | "I could not reach the coaching model" | Both providers refused | Logs show 401 for a bad key, 429 for exhausted quota. Remember the 15-minute cooldown |
 | FitBot answers but never cites a document | No PDFs ingested for that discipline, or embeddings failed | Upload a PDF; check logs for `Retrieval failed` |
+| FitBot still shows one complete reply | Frontend reached an older backend, or an old frontend build is cached | Deploy both current builds; the client intentionally falls back to `/fitbot/chat` when SSE cannot start |
+| Insights answers arrive all at once / no stream | Same version skew on `/admin/.../stream` routes | Redeploy API + Pages; UI falls back to JSON ask/report endpoints |
 | Database error after a quiet period | Neon was asleep, pooled connection stale | `pool_pre_ping` handles it; confirm you used the pooled string |
 | 429 from your own API | The rate limiter | Expected. 20 chat messages per 5 minutes per caller |
 | Cloudflare build fails, "no package.json" | Root directory not set | Set root directory to `frontend` |
@@ -668,7 +677,7 @@ Everything degrades gracefully instead of breaking:
 
 | Still works | Stops working |
 | --- | --- |
-| The whole site, all three dashboards | FitBot's model-generated coaching answers |
+| The whole site, member / trainer / admin / front-desk | FitBot's model-generated coaching answers |
 | FitBot's price and timetable answers (read from Postgres) | Document retrieval (embeddings need Gemini) |
 | The safety gate, login and upgrade prompts | The analyst's written narration |
 | The advisor's recommendations — findings are computed, not generated | The advisor's written briefing |

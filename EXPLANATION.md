@@ -21,7 +21,7 @@ It is **the assistant is under the same permission system as the rest of the app
 
 ## 2. The problem it solves
 
-A small gym runs on WhatsApp messages and a paper register. Three things go wrong:
+A small gym runs on WhatsApp messages and a paper register. Four things go wrong:
 
 1. **The front desk answers the same four questions all day.** Prices, timings, what is
    included, when does my plan expire.
@@ -29,10 +29,13 @@ A small gym runs on WhatsApp messages and a paper register. Three things go wron
    sometimes gets one, because the rule lives in a person's memory rather than in a system.
 3. **The owner has no idea what is happening.** Who is about to leave? Which class is empty?
    Which trainer is overloaded? The data exists but nobody queries it.
+4. **Attendance is a paper clipboard.** Stolen cards, forgotten phones and no digital record
+   of who actually walked in.
 
-Master GYM answers all three: a chat assistant for the repeated questions, one server-side
-rule engine for what each package allows, and admin agents (analyst, advisor, Copilot) that read
-the database and report in plain English.
+Master GYM answers all four: a chat assistant for the repeated questions, one server-side
+rule engine for what each package allows, admin agents (analyst, advisor, Copilot) that read
+the database and report in plain English, and a QR front-desk kiosk with human photo
+verification that records door attendance without paid biometrics.
 
 ---
 
@@ -68,6 +71,8 @@ the database and report in plain English.
 | **React Router 6** | Routing | Nested routes let one guard protect a group of pages |
 | **Tailwind CSS v4** | Styling | Design tokens in CSS, no config file, no UI library to fight |
 | **lucide-react** | Icons | Tree-shakeable, one consistent set |
+| **@zxing/browser** | Front-desk QR scan | Decodes locally; camera frames never leave the tablet |
+| **qrcode.react** | Member gym-pass display | SVG QR of the signed pass token |
 | **React Context** | Shared state | The only shared state is the current user |
 | **Playwright** | Browser tests | 46 tests on real Chromium |
 
@@ -123,11 +128,11 @@ the member never finds out.
 
 ---
 
-## 5. The six decisions worth talking about
+## 5. The seven decisions worth talking about
 
 These are the answers to "tell me about a technical decision you made". Each one has a
 problem, the options, the choice, and the result. Pick two or three and know them properly
-rather than mentioning all six.
+rather than mentioning all seven.
 
 ---
 
@@ -310,17 +315,38 @@ degrades to "answer without documents" rather than crashing.
 
 ---
 
+### Decision 7: QR check-in instead of face recognition
+
+**The problem.** The gym needs door attendance on a permanent tablet without another mobile app.
+
+**The options.** Face recognition (1:N), Gemini vision "who is this?", or a secure QR plus a
+human photo check.
+
+**The choice.** Option three. ZXing reads a signed, revocable pass in the browser. The API
+returns a briefing from SQL. Reception confirms the face against an enrolled photo. Attendance
+is written only after Confirm.
+
+**Why the others are worse on this project.** Face recognition needs a heavy model, biometric
+consent and still fails in bad lighting. Asking an LLM who someone is is expensive, quota-bound
+and not a unique-ID system. QR keeps the feature free, private and fast, and uses the
+receptionist who is already at the door.
+
+**The line to use:** *"Identify with crypto, verify with a human — don't spend AI quota on the
+door."*
+
+---
+
 ## 6. Numbers you can quote
 
 Have these ready. Specifics make a project sound real.
 
 | Fact | Number |
 | --- | --- |
-| Backend tests, all offline | **202** |
+| Backend tests, all offline | **207** |
 | Playwright browser tests | **46** |
-| Total automated tests | **248** |
+| Total automated tests | **253** |
 | Database tables | **16** |
-| API endpoints | **35** (including the health check) |
+| API endpoints | **~50** (including health, front-desk, and SSE stream routes) |
 | LangGraph agents | **4** (FitBot, DataAgent, AdvisorAgent, Copilot) |
 | MCP servers | **2** (gym tools + admin Copilot) |
 | Vetted admin metrics | **11** |
@@ -332,7 +358,7 @@ Have these ready. Specifics make a project sound real.
 | Runtime frontend dependencies | **6** |
 | Monthly hosting cost | **₹0** |
 
-Two of these are the good ones. **"248 tests, none of which need the internet for the
+Two of these are the good ones. **"253 tests, none of which need the internet for the
 backend suite"** answers "how do you know it works?". **"Agentic RAG with package filtering
 inside SQL"** is a measured retrieval design with a before and after story.
 
@@ -348,17 +374,22 @@ Pick four. Each one names a technology, an action and a result.
 > - Built a role-based platform (member, trainer, reception, admin) where feature access is derived from
 >   one server-side entitlement engine, so package tiers govern class booking, personalised
 >   programmes, and which documents the AI assistant may quote — from a single source of truth.
+> - Shipped a reception **Front desk** kiosk: in-browser ZXing QR scan, HMAC-signed revocable
+>   member passes, human photo verification, SQL briefing (expiry, classes, trainer, notices)
+>   and four-hour idempotent attendance — no paid vision API and no biometric matching.
 > - Designed a LangGraph FitBot with a deterministic safety gate and triage, then a
 >   tool-calling respond step (pricing, timetable, entitlements, RAG); combined with a
->   Gemini→Groq fallback chain and quota cooldown on free-tier limits.
+>   Gemini→Groq fallback chain, quota cooldown on free-tier limits, and SSE delivery that
+>   progressively updates one browser chat bubble without another paid service.
 > - Built advanced RAG over admin-uploaded PDFs: scanned-vs-text ingest (OCR, tables with order
 >   preserved, image summary + detail), hybrid keyword+semantic RRF retrieve, and an agentic
 >   grade-and-retry loop — membership filtering stays inside SQL and never widens the shelf.
 > - Shipped an admin Copilot that orchestrates DataAgent and AdvisorAgent, plus two MCP servers
->   (gym tools and admin-only Copilot with login → short-lived session token).
+>   (gym tools and admin-only Copilot with login → short-lived session token). Insights prose
+>   streams over the same free SSE path as FitBot; tables and cards arrive on the final event.
 > - Admin analytics use a registry of vetted SQL queries instead of model-generated SQL,
 >   eliminating both hallucinated figures and the risk of an LLM reading password hashes.
-> - Wrote 248 automated tests — 202 pytest with the model stubbed, 46 Playwright on real
+> - Wrote 253 automated tests — 207 pytest with the model stubbed, 46 Playwright on real
 >   Chromium that also fail on any console error or 5xx response.
 > - Deployed on free tiers end to end (Render, Cloudflare Pages, Neon) with a `render.yaml`
 >   blueprint, migrating off disk-backed SQLite and ChromaDB to survive an ephemeral filesystem.
@@ -376,12 +407,14 @@ Pick four. Each one names a technology, an action and a result.
 >
 > FitBot is a tool-calling agent after a hard safety gate: the model picks pricing, timetable
 > or RAG tools instead of inventing facts. Document search is agentic — one relevance grade and
-> at most one rewrite, still on the same package shelf. Admins get a Copilot that orchestrates
-> DataAgent and AdvisorAgent, also exposed as an MCP server with login then a session token.
+> at most one rewrite, still on the same package shelf. Reception gets a QR front-desk kiosk
+> with human photo confirm — attendance without biometrics or paid vision. Admins get a Copilot
+> that orchestrates DataAgent and AdvisorAgent, also exposed as an MCP server with login then
+> a session token.
 >
 > It runs entirely on free tiers, which forced real engineering — two LLM providers in
-> sequence, a cooldown when one runs out of quota, and vetted metric queries instead of
-> text-to-SQL."
+> sequence, a cooldown when one runs out of quota, vetted metric queries instead of
+> text-to-SQL, and SSE so FitBot and Insights answers appear progressively with no extra bill."
 
 That is three decisions in a minute, with a reason each. Stop there and let them pick one.
 
@@ -403,8 +436,9 @@ Have a real answer. Vagueness reads as not having thought about it.
 > "Three things. Alembic migrations from the start — right now tables are created on startup
 > and adding a column means rebuilding the database, which is fine while data is disposable and
 > not fine after that. Redis for rate limiting, because the counter is in process memory, so it
-> is correct on one instance and wrong on two. And streaming the chat responses; the model
-> supports it and the reply currently arrives all at once, which makes a good answer feel slow."
+> is correct on one instance and wrong on two. And provider-native token streaming deeper in the
+> LLM layer; FitBot and Insights already stream finished prose over SSE after orchestration,
+> but tool rounds still complete before the first text chunk."
 
 ### The 5-minute live demo
 
@@ -419,11 +453,16 @@ Order matters. Each step should show something the previous one could not.
    showing up inside a conversation.
 4. **Ask about chest pain during exercise** — a referral and a "flagged for a human trainer"
    badge. Note that the model was never called.
-5. **Sign in as admin → Insights → Copilot → "why might members be leaving and what should I
-   do?"** — shows agents used (DataAgent + AdvisorAgent). Explain the orchestrator.
-6. **Advisor tab** — prioritised recommendations with evidence. Note findings are computed.
+5. **Member dashboard → My gym pass**, then **admin → Front desk** (or a reception login) —
+   scan the QR, show the briefing, Confirm. Explain signed/revocable tokens and why there is
+   no face recognition on a free-tier tablet.
+6. **Sign in as admin → Insights → Copilot → "why might members be leaving and what should I
+   do?"** — watch the answer stream in, then tables/recommendations appear. Same free SSE path
+   as FitBot; no extra vendor. Explain the orchestrator.
+7. **Advisor tab** — briefing text streams on Refresh; prioritised recommendations arrive on
+   `done`. Note findings are computed.
 
-If you have seven minutes, add uploading a PDF (text or scanned), asking FitBot about it
+If you have nine minutes, add uploading a PDF (text or scanned), asking FitBot about it
 (hybrid + agentic RAG / citation),
 and a quick note that admin Copilot is also available as MCP with login → session token.
 
@@ -468,9 +507,11 @@ retrieval scales further than the rest.
 
 **"What did you not build?"**
 Payments are simulated — choosing a package activates it and no card details are collected
-anywhere. There are no migrations. Chat is not streamed. There are no component-level frontend
-tests, only end-to-end. And the safety screening is keyword based, so it is blunt and
-English-first.
+anywhere. There are no Alembic migrations. FitBot and Admin Insights stream over SSE after
+orchestration. There are no component-level
+frontend tests, only end-to-end. The safety screening is keyword based, so it is blunt and
+English-first. Front-desk check-in is QR + human photo verification — not face recognition
+and not an automatic turnstile.
 
 ---
 
@@ -478,25 +519,29 @@ English-first.
 
 Useful when matching yourself to a job description.
 
-**Backend engineering** — REST API design, relational modelling with twelve related tables,
-role-based access control, stateless auth with JWT and Argon2, rate limiting, dependency
-injection, layered architecture with services that do not import from the API layer.
+**Backend engineering** — REST API design, relational modelling with sixteen related tables,
+role-based access control (including a limited reception role), stateless auth with JWT and
+Argon2, rate limiting, dependency injection, layered architecture with services that do not
+import from the API layer.
 
 **AI engineering** — RAG end to end with an agentic retry loop, agent design with LangGraph
 (tool-calling FitBot + multi-agent Copilot), MCP servers with admin session auth, prompt
 budgeting, multi-provider fallback with cooldowns, and constraining a model's authority so
 hallucinations cannot become wrong numbers or leaked data.
 
+**Product / ops features** — secure member passes, in-browser QR scanning, human-verified
+attendance and operational notices without dragging AI or paid biometrics into the door flow.
+
 **Frontend engineering** — React with TypeScript in strict mode, routing with role guards,
-context-based auth state, a typed API client as the single network boundary, and a small
-design system built from tokens rather than a component library.
+context-based auth state, a typed API client as the single network boundary, lazy-loaded
+kiosk code, and a small design system built from tokens rather than a component library.
 
 **Security thinking** — permission checks on the server with the client as UX only, the role
 claim in the token deliberately not trusted, retrieval filtered in SQL before ranking, no SQL
 generation by a model, credentials kept out of the chat transcript, and read-only demo accounts
 so public passwords cannot damage a public deployment.
 
-**Testing** — 248 tests across two suites, stubbing external providers so the backend suite is
+**Testing** — 253 tests across two suites, stubbing external providers so the backend suite is
 fast and offline, testing permission boundaries and not just happy paths, and browser tests
 that fail on console errors and 5xx responses rather than only on wrong clicks.
 

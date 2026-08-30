@@ -119,8 +119,9 @@ page on refresh.
 
 ## 5. Routes and the guard
 
-All routes are children of `<Layout />`, so the header, footer and chat widget exist on every
-page including the 404.
+All routes are children of `<Layout />`. On most pages the header, footer and FitBot widget are
+present. On `/front-desk` the layout strips marketing nav, footer and FitBot so a tablet can
+stay signed in as a dedicated kiosk while still offering sign-out.
 
 | Path | Page | Guard | Who gets in |
 | --- | --- | --- | --- |
@@ -130,7 +131,7 @@ page including the 404.
 | `/join` | `Join` | none | everyone |
 | `/dashboard` | `MemberDashboard` | `ProtectedRoute` | member, trainer, admin |
 | `/trainer` | `TrainerDashboard` | `ProtectedRoute` | trainer, admin |
-| `/front-desk` | `FrontDesk` | `ProtectedRoute` | reception, admin |
+| `/front-desk` | `FrontDesk` (lazy) | `ProtectedRoute` | reception, admin |
 | `/admin` | `AdminDashboard` | `ProtectedRoute` | admin |
 | `/admin/insights` | `AdminInsights` | `ProtectedRoute` | admin |
 | `*` | `NotFound` | none | everyone |
@@ -163,8 +164,8 @@ Three behaviours, in order:
    `state.from`. The login page reads it and sends them there afterwards, so a bookmarked
    `/admin` link still lands correctly after signing in.
 3. **Wrong role** — send them to their own home via `homeFor(role)`: admin → `/admin`,
-   trainer → `/trainer`, member → `/dashboard`. A redirect rather than an error page, because
-   a member reaching `/admin` is a wrong turn, not a failure.
+   reception → `/front-desk`, trainer → `/trainer`, member → `/dashboard`. A redirect rather
+   than an error page, because a member reaching `/admin` is a wrong turn, not a failure.
 
 `replace` is used on both redirects so the back button does not bounce the user in a loop.
 
@@ -309,6 +310,8 @@ class ApiError extends Error {
   an array for validation failures. Both become one readable sentence.
 - A 401 clears the stored token before throwing.
 - 204 responses return `undefined` instead of trying to parse empty JSON.
+- Progressive answers use a shared SSE reader (`openSse` / `readSse`) for FitBot and Insights.
+  Events are `meta`, `token`, `done`, and `error`. JSON helpers stay as fallbacks.
 
 Because backend errors are written for members, pages can show `error.message` directly. No
 mapping table of codes to copy.
@@ -343,7 +346,8 @@ About thirty functions grouped on one `api` object, named after intent rather th
 | Admin people | `people`, `createPerson`, `updatePerson`, `changeRole`, `assignTrainer`, `overview` |
 | Staff | `myMembers`, `memberProgrammes`, `createProgramme` |
 | Knowledge | `documents`, `uploadDocument`, `deleteDocument` |
-| AI | `chat`, `metrics`, `askAnalyst`, `advisorReport`, `askCopilot` |
+| AI | `streamChat`, `streamAnalyst`, `streamAdvisorReport`, `streamCopilot` (SSE) plus JSON fallbacks `chat`, `askAnalyst`, `advisorReport`, `askCopilot`; also `metrics` |
+| Front desk | `myPass`, `frontDeskLookup`, `frontDeskCheckIn`, `frontDeskSearch`, `frontDeskBriefing`, `frontDeskNotices`, `createNotice`, `updateNotice`, `deleteNotice`, `rotateMemberPass`, `uploadMemberPhoto`, `memberPhoto` |
 
 These types are written by hand rather than generated from the OpenAPI schema. For an app this
 size that is less machinery, and a mismatch shows up immediately as a type error in the page
@@ -414,19 +418,21 @@ from the packages page.
 ### `MemberDashboard.tsx` — `/dashboard`
 
 Loads `api.classes()`, `api.myProgrammes()` and `api.profile()`, and reads `user` and
-`entitlements` from context.
+`entitlements` from context. Members also load `api.myPass()` for the gym-pass card.
 
-Four sections:
+Sections:
 
 1. **Membership** — plan name, expiry, disciplines, class quota, whether a personal programme
    is included. With 7 days or fewer left it shows an expiring badge. No package shows a call
    to action instead.
-2. **My programmes** — the workout and diet plans a trainer wrote, with an empty state when
+2. **My gym pass** — SVG QR from `qrcode.react` encoding the signed pass token. Shown only for
+   `role === "member"`. Keep it private like a membership card; staff can rotate it from admin.
+3. **My programmes** — the workout and diet plans a trainer wrote, with an empty state when
    there are none.
-3. **Upcoming classes** — one button per class that books or cancels. `toggleBooking` then
+4. **Upcoming classes** — one button per class that books or cancels. `toggleBooking` then
    refreshes both the class list and entitlements, because a booking changes the quota shown
    above.
-4. **My fitness profile** — goal, experience level, equipment access, injuries or limits. The
+5. **My fitness profile** — goal, experience level, equipment access, injuries or limits. The
    success message mentions that FitBot reads this, which is the reason to fill it in.
 
 A refusal from the server, such as booking a discipline your package excludes, is shown as-is.
@@ -450,25 +456,36 @@ the timezone marker to match the naive UTC datetimes the backend stores.
 
 ### `FrontDesk.tsx` — `/front-desk`
 
-A tablet-friendly check-in kiosk for reception and admin. ZXing reads a secure member QR
-directly from the camera, then the API returns the member photo, package/expiry, upcoming
-bookings, trainer, active repair notices and last check-in. The receptionist confirms the
-human match before attendance is written. Manual member search is the fallback for a forgotten
-card. FitBot and the marketing footer are hidden on this route.
+A tablet-friendly check-in kiosk for reception and admin, lazy-loaded so ZXing does not bloat
+the public bundle.
+
+1. **Start scan / Stop** — `BrowserQRCodeReader` from `@zxing/browser` on a live video element.
+   Duplicate tokens are ignored while a lookup is in flight. Camera permission errors fall
+   through to manual search.
+2. **Lookup** — `api.frontDeskLookup(token)` returns the briefing. Photos load via
+   `api.memberPhoto` as a blob URL when `photo_available` is true.
+3. **Briefing card** — name, active flags, package, expiry, quota, trainer, last check-in,
+   next classes, active notices, warning list (expired / inactive).
+4. **Confirm / Reject** — Confirm calls `api.frontDeskCheckIn` with `qr` or `manual`; Reject
+   clears the briefing and restarts the camera. Inactive accounts cannot confirm.
+5. **Manual search** — name / email / phone → pick a member → same briefing path.
+
+FitBot and the marketing footer are hidden on this route by `Layout`.
 
 ### `AdminDashboard.tsx` — `/admin`
 
-Loads `api.overview()`, `api.people()` and `api.documents()` in parallel, so the page paints
-once rather than in three steps.
+Loads `api.overview()`, `api.people()`, `api.documents()` and `api.frontDeskNotices()` in
+parallel, so the page paints once rather than in steps.
 
-1. A card linking to `/admin/insights`.
+1. Cards linking to `/admin/insights` and `/front-desk`.
 2. Four stats: members, active packages, revenue, knowledge documents.
-3. Create member or trainer — name, email, temporary password, role.
-4. The accounts table, where the actions are inline controls rather than modals: a role
-   dropdown, a trainer dropdown, and a clickable active badge that toggles the account.
-5. The FitBot knowledge base — a PDF upload with a discipline dropdown, and the document list
-   with chunk counts, ingest mode (`direct` vs `ocr`), and delete buttons. Scanned PDFs are
-   OCR'd on the backend (needs Gemini); text PDFs extract tables and image summary/detail too.
+3. Create member, trainer **or reception** — name, email, temporary password, role.
+4. The accounts table: role dropdown (includes reception), trainer assign, active toggle,
+   **Rotate pass** and **Enroll photo** for members.
+5. **Front desk notices** — kind (info / repair / closure), title, message; pause by setting
+   `active_until` to now; delete.
+6. The FitBot knowledge base — PDF upload with discipline dropdown, document list with chunk
+   counts, ingest mode (`direct` vs `ocr`), and delete.
 
 Small but real bug fix worth keeping: the role dropdown captures its value into a variable
 before the `await`, because a controlled `<select>` would otherwise snap back to the old value
@@ -479,16 +496,19 @@ while the request is in flight.
 Three tabs. Default is **Copilot**.
 
 **Copilot tab** — one textbox for the multi-agent orchestrator. Empty state explains DataAgent /
-AdvisorAgent / Both, with sample chips labeled accordingly. Each reply shows which agents ran,
-plus any metric tables and recommendation cards they produced. Calls `api.askCopilot`.
+AdvisorAgent / Both, with sample chips labeled accordingly. Replies stream via
+`api.streamCopilot` (fallback `api.askCopilot`); agent badges can appear from `meta`, and
+metric tables / recommendation cards attach on `done`.
 
-**Analyst tab** — five suggested questions, then a chat-style list of turns with `MetricGrid`
-for the tables the agent actually read. Input capped at 500 characters.
+**Analyst tab** — five suggested questions, then a chat-style list of turns. Answer text
+streams via `api.streamAnalyst`; `MetricGrid` tables arrive on `done`. Input capped at 500
+characters.
 
-**Advisor tab** — briefing card with summary, refresh, and `RecommendationCard` grid. Fetched
-on first open of the tab.
+**Advisor tab** — briefing card with summary, refresh, and `RecommendationCard` grid. Opens
+with `api.streamAdvisorReport` so the briefing grows live; recommendations arrive on `done`.
 
-None of these are streamed. One POST, one full response.
+All three Insights tabs stream prose over SSE. JSON endpoints remain as fallback if an older
+backend is still deployed.
 
 ---
 
@@ -501,8 +521,11 @@ The shell every page sits in: a sticky blurred header with the brand and nav, th
 collapses into a hamburger menu with an `open` state. The right side of the header shows an
 avatar and sign-out when signed in, or sign-in and join links when not.
 
-The widget is mounted here rather than per page, so the chat is available everywhere and its
-state survives navigation.
+On `/front-desk`, marketing links, footer and FitBot are omitted so a shared tablet stays
+focused on check-in. Sign-out remains available.
+
+The widget is mounted here rather than per page (except the kiosk), so the chat is available
+everywhere else and its state survives navigation.
 
 ### `ColdStartBanner.tsx`
 
@@ -537,8 +560,11 @@ interface Bubble {
 }
 ```
 
-**Sending** is one `api.chat(message, conversationId)` call. Not streamed, so the reply appears
-all at once after the typing dots.
+**Sending** uses `api.streamChat(message, conversationId, handlers)`. It parses the
+`text/event-stream` response from a POST: `meta` sets the conversation id, every `token`
+appends text to the same bubble, and `done` attaches sources, handoff and action metadata.
+An `AbortController` stops the request when the widget closes. If streaming cannot start,
+the widget falls back to the original JSON `api.chat` endpoint.
 
 **Suggested prompts** appear while only the greeting exists: "What packages do you have?",
 "Give me a beginner push day", "How do I improve my flexibility?". They exist because an empty
@@ -730,12 +756,12 @@ with every build.
 
 ## 13. Honest limitations
 
-- **No streaming.** Chat and analyst replies arrive whole, so long answers feel slower than
-  they would with a typed-out effect.
+- **Streaming starts after orchestration.** FitBot and Insights grow text live over SSE, but
+  the tool/model work for that turn still finishes before the first chunk.
 - **Token in `localStorage`.** Weaker against XSS than an httpOnly cookie. A knowing trade, as
   explained above.
 - **No data-fetching library.** Each page does its own `useEffect` and `loading` state. That is
-  fine at eight pages and would get repetitive at thirty; React Query would be the next step.
+  fine at nine pages and would get repetitive at thirty; React Query would be the next step.
 - **No ESLint or Prettier.** Type checking only.
 - **No unit tests for components.** Confidence comes from Playwright end to end, which catches
   real breakage but gives slower and less precise feedback than component tests would.
@@ -743,3 +769,6 @@ with every build.
   `Profile.preferred_domains` is stored but not editable in the profile form.
 - **No optimistic updates.** Booking a class waits for the server round trip before the button
   changes.
+- **Front-desk camera needs a secure origin.** Localhost and Cloudflare Pages HTTPS both work;
+  plain HTTP on a LAN IP will not get `getUserMedia`.
+- **No face recognition.** Check-in is QR identity plus a human comparing the enrolled photo.

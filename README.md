@@ -21,6 +21,7 @@ records attendance only after a human confirms the match.
 | PDF ingest | PyMuPDF + Gemini vision OCR | Text PDFs extract directly; scanned PDFs are OCR'd |
 | Retrieval | Hybrid (keyword + semantic RRF) + agentic retry | Exact terms and meaning both matter; weak hits get one rewrite |
 | Admin AI | Copilot over DataAgent + AdvisorAgent | One textbox; supervisor routes to specialists |
+| Door check-in | ZXing in-browser QR + signed passes | Camera stays on the tablet; API gets only a token |
 | API | FastAPI + SQLAlchemy | SQLite locally, Postgres when hosted — same models either way |
 | Auth | Argon2 password hashing + JWT | Argon2 is the current recommendation for passwords |
 | Web app | React + Vite + Tailwind v4 | Premium dark UI; fast dev loop |
@@ -43,7 +44,7 @@ GYM-/
 ├── backend/              # FastAPI app, agents, MCP servers, tests
 │   ├── app/
 │   │   ├── agents/       # FitBot, DataAgent, AdvisorAgent, Copilot orchestrator
-│   │   ├── api/          # auth, membership, people, fitbot, knowledge, intelligence
+│   │   ├── api/          # auth, membership, people, front_desk, fitbot, knowledge, intelligence
 │   │   ├── core/         # settings and security primitives
 │   │   ├── services/     # llm, pdf_extract, rag (hybrid), gym_ops, entitlements, analytics
 │   │   ├── mcp_server.py # public gym tools for any MCP client
@@ -53,7 +54,7 @@ GYM-/
 │   ├── scripts/
 │   │   ├── seed.py       # --demo / --public-demo / --rich-demo
 │   │   └── reset_db.py   # drop schema + optional re-seed
-│   └── tests/            # 202 tests, no network calls
+│   └── tests/            # 207 tests, no network calls
 └── frontend/
     ├── e2e/              # 46 Playwright browser tests
     ├── design-preview.html
@@ -153,20 +154,40 @@ needs, and what to do when the schema changes.
 ## How the roles differ
 
 **Member** — sees their package and days remaining, their trainer-written workout and diet
-programmes, books and cancels classes within their quota, and edits the fitness profile that
-FitBot reads before every answer.
+programmes, books and cancels classes within their quota, edits the fitness profile that FitBot
+reads before every answer, and shows a **My gym pass** QR on the dashboard for the door tablet.
 
-**Reception** — lands on the dedicated check-in kiosk. It scans member passes, verifies the
-member against the enrolled photo, records attendance, and sees only the package/class/trainer
-context needed at the door. Reception cannot open trainer or admin tools.
+**Reception** — lands on the dedicated check-in kiosk at `/front-desk`. It scans member passes,
+verifies the person against the enrolled photo, records attendance, and sees only the
+package / class / trainer / notices context needed at the door. Reception cannot open trainer
+or admin tools (no Insights, no PDF knowledge, no role changes).
 
 **Trainer** — sees only the members assigned to them, writes workout and diet programmes for
 those members, and manages the class timetable.
 
-**Admin** — signs in through the web app only. Creates members and trainers, changes roles,
-assigns trainers to members, activates or deactivates accounts, controls the knowledge base by
-uploading and removing the PDFs FitBot is allowed to quote, and has the Insights agents
-described below (DataAgent, AdvisorAgent, and the Copilot that orchestrates both).
+**Admin** — signs in through the web app only. Creates members, trainers and reception staff,
+changes roles, assigns trainers, activates or deactivates accounts, enrolls check-in photos,
+rotates lost passes, publishes repair/closure notices, controls the knowledge base by uploading
+and removing the PDFs FitBot is allowed to quote, can open the front-desk kiosk, and has the
+Insights agents described below (DataAgent, AdvisorAgent, and the Copilot that orchestrates
+both).
+
+## Front desk check-in
+
+A permanent tablet stays signed in as reception (or admin). Members show the QR from
+**My gym pass**. Flow:
+
+1. **Scan** — `@zxing/browser` reads the QR in the camera; only the opaque token is POSTed.
+2. **Briefing** — server returns name, enrolled photo, package expiry, class quota, upcoming
+   bookings, assigned trainer, active gym notices and last check-in (all from SQL).
+3. **Confirm** — reception compares the person to the photo and taps Confirm or Reject.
+4. **Attendance** — a row is written with method `qr` or `manual`. Repeats within four hours
+   return the existing check-in (idempotent). Expired memberships still show a red warning but
+   can be checked in so the visit is recorded.
+
+Manual name / email / phone search covers forgotten phones. Pass tokens are HMAC-signed and
+stored only as SHA-256 digests; rotating a pass revokes the old QR immediately. Camera frames
+never leave the tablet and never call an LLM.
 
 ## How FitBot behaves
 
@@ -184,6 +205,9 @@ described below (DataAgent, AdvisorAgent, and the Copilot that orchestrates both
    RRF) with an agentic grade-and-retry loop, still filtered by the caller's package in SQL.
    If the first pass looks weak, a small judge may rewrite the query and retrieve **once more
    on the same shelf** (max 2 attempts). Locked disciplines never enter that loop.
+5. **Stream to the browser.** FitBot uses `/api/fitbot/chat/stream` (SSE: `meta`, `token`,
+   `done`). Admin Insights does the same for analyst, advisor briefing and Copilot. The JSON
+   endpoints remain as fallbacks. No extra streaming vendor or bill — same Gemini/Groq keys.
 
 FitBot never asks for a password. Signing in from the chat uses a real form that posts
 straight to the API, so credentials never enter the conversation transcript.
@@ -241,7 +265,9 @@ PDF OCR and image captions specifically need Gemini.
 ## The admin agents (Insights)
 
 All live at **Admin console → Insights**, and all are behind `require_admin`. Trainers and
-members have no route to these figures.
+members have no route to these figures. Each agent's prose streams into the UI over SSE after
+its tools/rules finish; metric tables and recommendation cards arrive on the final `done`
+event.
 
 **Copilot (orchestrator)** — one textbox. A supervisor routes the question to DataAgent,
 AdvisorAgent, or both, then combines the answer. Sample prompts are labeled Data / Advice /
@@ -297,7 +323,7 @@ cd backend
 python -m pytest
 ```
 
-202 tests covering agent routing and safety logic, FitBot tools, PDF classify / OCR split /
+207 tests covering agent routing and safety logic, FitBot tools, FitBot and Insights SSE delivery, PDF classify / OCR split /
 hybrid RRF, agentic RAG, the Copilot orchestrator, MCP admin auth, authentication, role
 boundaries, secure/revocable member passes, attendance cooldowns, photo access, operational
 notices, package entitlements, the document access ladder, conversation privacy, metric
@@ -313,9 +339,11 @@ npm run build     # production build
 ### Browser tests
 
 46 Playwright tests drive a real Chromium against the running app: the public site, signup and
-login, route guards for all three roles, the member dashboard, class booking and entitlement
-refusals, the trainer desk, the admin console, PDF ingestion, Insights (Copilot / analyst /
-advisor), and the FitBot widget. They also fail the run on any console error or 5xx response.
+login, route guards for member / trainer / admin, the member dashboard, class booking and
+entitlement refusals, the trainer desk, the admin console, PDF ingestion, Insights (Copilot /
+analyst / advisor), and the FitBot widget. Front-desk QR check-in is covered by backend
+`test_attendance.py`; browser coverage for the kiosk can be added next. They also fail the run
+on any console error or 5xx response.
 
 Start both servers first, then:
 
@@ -342,10 +370,13 @@ $env:E2E_ADMIN_PASSWORD = "your-admin-password"
   are collected anywhere. Swap `purchase_membership` in `app/api/membership.py` for a payment
   provider callback before charging anyone.
 - **SQLite has no migrations here.** Tables are created on startup; a few knowledge columns
-  are `ALTER`ed if missing. After a model change, prefer
+  are `ALTER`ed if missing, and hosted Postgres gets `ALTER TYPE role ADD VALUE IF NOT EXISTS
+  'RECEPTION'` for the desk role. After a model change, prefer
   `python -m scripts.reset_db --yes ...` (or delete `backend/gym_coach.db` and re-seed), or
   add Alembic before you have real members.
-- **Admin accounts are created from the server only**, via `scripts/seed.py` or by an existing
-  admin. Self-signup always produces a member, whatever the request body says.
+- **Admin and reception accounts are created by an admin** (or `scripts/seed.py` for admin).
+  Self-signup always produces a member, whatever the request body says.
+- **Check-in is QR + human photo verification**, not face recognition. Photos live in Postgres
+  (Render's disk is ephemeral). The kiosk needs HTTPS (or localhost) for the camera API.
 - **Vector search needs Postgres + pgvector** when hosted. Local SQLite still stores chunks for
   ingest tests; hybrid keyword ranking works locally, full semantic ranking is for Neon.

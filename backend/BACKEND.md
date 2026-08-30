@@ -39,7 +39,7 @@ cases.
 | Passwords | Argon2 through `pwdlib` | Argon2 is the current recommended password hash. |
 | Tokens | `PyJWT` (HS256) | Small, stateless, no session table needed. |
 | Settings | `pydantic-settings` | Reads `.env`, checks types, one place for defaults. |
-| Tests | pytest | 202 tests, no network calls. |
+| Tests | pytest | 207 tests, no network calls. |
 | Linting | ruff | Fast, replaces flake8 + isort. |
 
 Python 3.11 or newer. The hosted service pins 3.14.3 in `render.yaml`.
@@ -66,9 +66,10 @@ backend/
 │   │   ├── membership.py     Packages, purchase, classes, bookings
 │   │   ├── people.py         Admin people management, profiles, programmes
 │   │   ├── front_desk.py     QR passes, photos, attendance and notices
-│   │   ├── fitbot.py         The chat endpoint
+│   │   ├── fitbot.py         Chat JSON + SSE stream
+│   │   ├── sse.py            Shared Server-Sent Event helpers
 │   │   ├── knowledge.py      Admin PDF upload and delete
-│   │   └── intelligence.py   DataAgent, AdvisorAgent, Copilot
+│   │   └── intelligence.py   DataAgent, AdvisorAgent, Copilot (+ SSE)
 │   ├── agents/
 │   │   ├── workflow.py       FitBot graph (safety → triage → tool-calling respond)
 │   │   ├── tools.py          FitBot tool specs and executors
@@ -90,7 +91,7 @@ backend/
 ├── scripts/
 │   ├── seed.py               Create admin, --demo / --public-demo / --rich-demo datasets
 │   └── reset_db.py           Drop schema, recreate packages, optional re-seed
-└── tests/                    202 tests
+└── tests/                    207 tests
 ```
 
 The rule the layout follows: **`api/` handles HTTP, `services/` holds the thinking, `agents/`
@@ -309,11 +310,13 @@ HTTPBearer(auto_error=False)
          ├── get_optional_user  returns None instead of raising (used by FitBot)
          └── require_roles(*roles)
                ├── require_admin = require_roles(ADMIN)
-               └── require_staff = require_roles(ADMIN, TRAINER)
+               ├── require_staff = require_roles(ADMIN, TRAINER)
+               └── require_front_desk = require_roles(ADMIN, RECEPTION)
 ```
 
 `auto_error=False` is what lets one endpoint serve both visitors and members: a missing header
-is not an error, just an absent user.
+is not an error, just an absent user. Reception is intentionally **not** in `require_staff`, so
+desk accounts cannot write programmes or manage the timetable.
 
 ### The read-only demo accounts
 
@@ -323,7 +326,12 @@ accounts are blocked from writing:
 
 ```python
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
-DEMO_WRITE_PATHS = ("/api/admin/analyst/ask",)
+DEMO_WRITE_PATHS = (
+    "/api/admin/analyst/ask",
+    "/api/admin/analyst/ask/stream",
+    "/api/admin/copilot/ask",
+    "/api/admin/copilot/ask/stream",
+)
 DEMO_WRITE_SUFFIXES = ("/book",)
 
 def _guard_demo_account(user, request):
@@ -349,7 +357,7 @@ A sliding window kept in process memory, keyed on `(bucket, caller)`.
 
 | Bucket | Limit | Window | Endpoint |
 | --- | --- | --- | --- |
-| `chat` | 20 | 5 minutes | `POST /api/fitbot/chat` |
+| `chat` | 20 | 5 minutes | `POST /api/fitbot/chat` or `/api/fitbot/chat/stream` |
 | `login` | 10 | 5 minutes | `POST /api/auth/login` |
 | `register` | 5 | 1 hour | `POST /api/auth/register` |
 
@@ -430,14 +438,27 @@ photo, rotate a lost pass and confirm attendance. Only admins write operational 
 The browser decodes QR locally with ZXing and sends only the opaque token. The model is never
 called; every briefing field is loaded from SQL.
 
+| Method | Path | Who | What it does |
+| --- | --- | --- | --- |
+| GET | `/me/pass` | member | Issue or return the signed QR token for this member |
+| POST | `/front-desk/lookup` | admin, reception | Resolve a scanned token → `FrontDeskBriefing` |
+| POST | `/front-desk/check-in` | admin, reception | Confirm attendance (`qr` \| `manual`); 4-hour idempotent |
+| GET | `/front-desk/search?q=` | admin, reception | Find up to 8 members by name / email / phone |
+| GET | `/front-desk/briefing/{user_id}` | admin, reception | Same briefing without a scan |
+| POST | `/staff/members/{id}/pass/rotate` | admin, reception | Revoke old pass, issue a new token |
+| PUT | `/staff/members/{id}/photo` | admin, reception | Enroll JPEG/PNG ≤ 500 KB for human verification |
+| GET | `/staff/members/{id}/photo` | admin, reception, or that member | Raw image bytes |
+| GET | `/front-desk/notices` | admin, reception | List operational notices |
+| POST / PUT / DELETE | `/front-desk/notices[/{id}]` | admin | Create, update or delete notices |
+
 ### People, profiles and programmes — `app/api/people.py`
 
 | Method | Path | Who | What it does |
 | --- | --- | --- | --- |
 | GET | `/admin/people` | admin | Everyone, filterable by role |
-| POST | `/admin/people` | admin | Create a member or trainer |
+| POST | `/admin/people` | admin | Create a member, trainer or reception account |
 | PATCH | `/admin/people/{user_id}` | admin | Edit; cannot deactivate yourself |
-| POST | `/admin/people/{user_id}/role` | admin | Change role; cannot change your own |
+| POST | `/admin/people/{user_id}/role` | admin | Change role (including `reception`); cannot change your own |
 | POST | `/admin/people/{member_id}/trainer/{trainer_id}` | admin | Assign a trainer |
 | GET | `/admin/overview` | admin | Counts, revenue, bookings |
 | GET | `/trainer/members` | admin or trainer | Trainers see only their own members |
@@ -455,7 +476,13 @@ rights, and cannot deactivate their own account. Either one could lock the last 
 | Method | Path | Who | What it does |
 | --- | --- | --- | --- |
 | POST | `/fitbot/chat` | anyone (20/5min) | Runs the graph, saves both messages |
+| POST | `/fitbot/chat/stream` | anyone (20/5min) | Same turn as SSE: `meta`, progressive `token` chunks, then final metadata in `done` |
 | GET | `/fitbot/conversations/{id}` | owner only | The transcript |
+
+A stream sends `Cache-Control: no-cache, no-transform` and `X-Accel-Buffering: no` so hosting
+proxies do not hold the chunks. The exchange is committed only after the complete answer has
+been delivered; a failed stream rolls the transaction back. The JSON endpoint remains the
+frontend's compatibility fallback.
 
 A conversation started by a visitor is adopted when they sign in mid-chat:
 
@@ -484,8 +511,17 @@ answers.
 | --- | --- | --- | --- |
 | GET | `/admin/analyst/metrics` | admin | Every metric in the registry |
 | POST | `/admin/analyst/ask` | admin | Ask a question in plain English |
+| POST | `/admin/analyst/ask/stream` | admin | Same answer as SSE (`token` + metric `done`) |
 | GET | `/admin/advisor/report` | admin | Prioritised recommendations |
+| GET | `/admin/advisor/report/stream` | admin | Briefing streamed; recommendations in `done` |
 | POST | `/admin/copilot/ask` | admin | Supervisor: DataAgent and/or AdvisorAgent |
+| POST | `/admin/copilot/ask/stream` | admin | Combined answer as SSE; tables/recs in `done` |
+
+JSON endpoints stay as the UI fallback. Demo accounts may POST the ask and ask/stream paths.
+
+Shared helpers live in `app/api/sse.py` (`sse`, `text_chunks`, `event_stream`). Events are
+always `meta` → progressive `token` → `done` (or `error`). Structured payloads (metrics,
+recommendations, FitBot sources) travel in `done`, not mid-stream.
 
 ---
 
@@ -782,16 +818,16 @@ cd backend
 python -m pytest
 ```
 
-**202 tests, no network calls**, so the suite is fast, free and works offline.
+**207 tests, no network calls**, so the suite is fast, free and works offline.
 
 | File | Tests | What it protects |
 | --- | --- | --- |
-| `test_intelligence.py` | 24 | Metric key validation, keyword fallback, admin-only access, Copilot ACL |
+| `test_intelligence.py` | 27 | Metric key validation, keyword fallback, admin-only access, SSE delivery, Copilot ACL |
 | `test_authorization.py` | 19 | Role boundaries, self-demotion and self-deactivation guards |
 | `test_front_desk.py` | 18 | Pricing/timetable via tools, "my package" vs "your packages" |
 | `test_analytics.py` | 15 | Metric correctness, empty-database safety, insight rules |
 | `test_workflow.py` | 15 | Route classification, safety gate, triage, price not short-circuited |
-| `test_fitbot.py` | 12 | Chat for all roles, conversation ownership, handoff |
+| `test_fitbot.py` | 14 | Chat for all roles, SSE delivery/persistence, conversation ownership, handoff |
 | `test_knowledge_access.py` | 11 | Document ladder, locked-package prompts |
 | `test_llm_chain.py` | 10 | Provider order, cooldown, generate_with_tools |
 | `test_membership.py` | 10 | Entitlements, booking rules, quotas, expiry |
@@ -803,6 +839,7 @@ python -m pytest
 | `test_mcp_admin.py` | 7 | Admin MCP login → token, member rejection |
 | `test_demo_accounts.py` | 6 | Read-only demo logins, email redaction |
 | `test_rate_limit.py` | 6 | Sliding window, `X-Forwarded-For` |
+| `test_attendance.py` | 9 | Reception isolation, pass issue/rotate, QR lookup, photo ACL, notices, cooldown |
 
 ### How the tests stay offline
 
@@ -874,8 +911,9 @@ Interactive docs at http://127.0.0.1:8000/docs.
 
 `scripts/reset_db.py --yes` drops and rebuilds the schema, then re-seeds (supports the same
 `--demo`, `--public-demo`, and `--rich-demo` flags). Use it after changing a model, because
-`initialize_database()` creates missing tables but never alters existing ones. Uploaded PDFs
-are cleared too and must be re-uploaded.
+`initialize_database()` creates missing tables but never alters existing ones — except it does
+add the Postgres `RECEPTION` role enum value when missing, and a few knowledge columns via
+`ALTER`. Uploaded PDFs are cleared too and must be re-uploaded.
 
 ---
 
@@ -886,8 +924,8 @@ Worth knowing before you build on this.
 - **Payments are simulated.** Choosing a package activates it immediately and no card details
   are collected anywhere. Replace `purchase_membership` in `app/api/membership.py` with a
   payment-provider callback before charging anyone.
-- **No migrations.** Tables are created on startup. Adding a column to an existing table does
-  not reach the database. Add Alembic before there is real data.
+- **No Alembic migrations.** Tables are created on startup. Adding a column to an existing
+  table does not reach the database (the reception enum value is a deliberate exception).
 - **Rate limiting is per process.** Fine for one free instance, wrong for two. Needs Redis to
   scale out.
 - **Vector search needs Postgres.** On SQLite the embedding column is text, so retrieval
@@ -895,5 +933,7 @@ Worth knowing before you build on this.
 - **Safety screening is keyword based.** It will occasionally stop a harmless question. It also
   only covers English and common Hinglish spellings.
 - **No refresh tokens.** An 8-hour token simply expires and the member signs in again.
-- **Chat is not streamed.** The reply arrives in one response, so a long answer feels slower
-  than a typing effect would.
+- **Streaming starts after orchestration.** FitBot and Admin Insights deliver finished prose
+  over SSE, but tool/model work still completes before the first text chunk.
+- **Check-in is not biometrics.** QR + human photo confirmation only. There is no face matching
+  and no automatic door unlock.

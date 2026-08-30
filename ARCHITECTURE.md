@@ -24,7 +24,7 @@ deeper and stays focused on **how the AI/agent layer actually works**.
 | Rate limiting | In-process sliding window (`core/rate_limit.py`) | No Redis needed for a single free-tier instance. |
 | Frontend | **React 18 + TypeScript + Vite + Tailwind CSS v4** | Fast dev server, utility-first styling, typed API client. |
 | Door check-in | **ZXing in the browser + signed QR passes** | The tablet decodes locally; only an opaque token reaches the API. No paid vision service or biometric matching. |
-| Testing | **pytest** (202 backend tests), **Playwright** (E2E), **Ruff** (lint) | |
+| Testing | **pytest** (207 backend tests), **Playwright** (E2E), **Ruff** (lint) | |
 | Hosting (free tier) | Render (API), Cloudflare Pages (frontend), Neon (Postgres) | |
 
 ---
@@ -34,14 +34,16 @@ deeper and stays focused on **how the AI/agent layer actually works**.
 ```
                          ┌─────────────────────────────┐
                          │        React Frontend        │
-                         │  (Landing / Packages / Join / │
-                         │   Member / Trainer / Admin)   │
+                         │ Landing · Packages · Join ·  │
+                         │ Member · Front desk · Trainer│
+                         │ Admin · Insights             │
                          └───────────────┬───────────────┘
                                          │ REST (JWT bearer)
                          ┌───────────────▼───────────────┐
                          │           FastAPI              │
                          │  auth · membership · people ·   │
-                         │  knowledge · fitbot · intelligence│
+                         │  front_desk · knowledge ·       │
+                         │  fitbot · intelligence          │
                          └───────────────┬───────────────┘
                     ┌────────────────────┼──────────────────────┐
                     │                    │                      │
@@ -53,9 +55,8 @@ deeper and stays focused on **how the AI/agent layer actually works**.
                     └────────────────────┼──────────────────────┘
                                          │
                          ┌───────────────▼───────────────┐
-                         │     app/services/gym_ops.py     │  ← single source of truth
-                         │  (pricing, timetable, search,   │    for agent + MCP tools
-                         │   metrics, booking, retrieval)  │
+                         │     app/services/gym_ops.py     │  ← FitBot + MCP tools
+                         │  + front_desk pass/attendance   │
                          └───────────────┬───────────────┘
                     ┌────────────────────┼──────────────────────┐
           ┌─────────▼────────┐  ┌────────▼─────────┐  ┌─────────▼─────────┐
@@ -64,6 +65,10 @@ deeper and stays focused on **how the AI/agent layer actually works**.
           │                   │  │ (services/llm.py) │  │ mcp_admin.py       │
           └───────────────────┘  └───────────────────┘  └───────────────────┘
 ```
+
+Door check-in does **not** use the LLM. The browser decodes a QR with ZXing; FastAPI
+verifies a signed pass hash and returns a SQL briefing. Reception confirms before attendance
+is written.
 
 Two independent MCP servers sit **beside** the FastAPI app and call the exact same
 `gym_ops` functions, so an MCP client (Cursor, Claude Desktop) and the web app can never
@@ -407,13 +412,61 @@ be run on a machine the admin controls.
 
 ---
 
+## 6b. Front desk attendance (QR + human confirm)
+
+**Files:** `backend/app/api/front_desk.py`, `frontend/src/pages/FrontDesk.tsx`,
+member QR on `MemberDashboard.tsx`.
+
+This is a gym-ops feature, not an AI feature. The design deliberately avoids face recognition
+and paid vision APIs so the door tablet stays free, private and reliable on a shared device.
+
+### Roles
+
+| Role | `/front-desk` | Insights / knowledge | Create reception |
+|---|---|---|---|
+| `admin` | Yes | Yes | Yes |
+| `reception` (new) | Yes — home via `homeFor` | No | No |
+| `trainer` / `member` | No | No | No |
+
+Self-signup cannot create `reception`. `require_front_desk = require_roles(ADMIN, RECEPTION)`.
+Reception gets `NO_MEMBERSHIP` entitlements — no trainer/admin package bypass.
+
+### Pass tokens
+
+1. `GET /api/me/pass` issues or returns the member's active pass.
+2. Token format: HMAC-SHA256 over `member_id.pass_id` using `JWT_SECRET`, prefixed `mgp1`.
+3. DB stores only `token_hash` (SHA-256) and a unique `active_slot` so one live pass per member.
+4. QR payload **is** the raw token (no custom URI scheme) so ZXing can POST it straight to
+   `POST /api/front-desk/lookup`.
+5. `POST /api/staff/members/{id}/pass/rotate` revokes the old row and issues a new token.
+
+### Check-in flow
+
+```
+Camera (ZXing) → token → lookup → FrontDeskBriefing → Confirm → attendance row
+                              ↘ Reject → no write
+Manual search → briefing/{id} ↗
+```
+
+Briefing fields are assembled in Python from `users`, `memberships`, `class_bookings`,
+`fitness_profiles`, `gym_notices`, `attendances`, and `member_photos` — never invented by a
+model. Photos are JPEG/PNG ≤ 500 KB in Postgres (`LargeBinary`). Check-ins within four hours
+are idempotent (`already_checked_in: true`). Inactive members cannot confirm; expired
+memberships warn but still allow check-in.
+
+Notices (`repair` | `closure` | `info`) are admin-written under `/api/front-desk/notices`;
+reception can list them. Layout hides FitBot and the marketing footer on `/front-desk` so the
+tablet stays uncluttered; the scanner chunk is lazy-loaded so the public bundle stays small.
+
+---
+
 ## 7. Data layer
 
 **File:** `backend/app/db.py` — single SQLAlchemy 2.0 `Base` with typed `Mapped[...]` columns.
 
 | Table | Purpose |
 |---|---|
-| `users` | One row per member/trainer/admin. Argon2 password hash, `Role` enum. |
+| `users` | One row per member/trainer/reception/admin. Argon2 password hash, `Role` enum (hosted Postgres adds `RECEPTION` via startup `ALTER TYPE`). |
 | `membership_plans` | Sellable packages: `allowed_disciplines` (CSV), `monthly_class_quota` (`-1` = unlimited), `personalised_programme`, `priority_support`. |
 | `memberships` | A purchased plan instance with `starts_on`/`expires_on`/`status`. |
 | `fitness_profiles` | Goal, experience, injuries, equipment, assigned trainer — one row per member. |
@@ -454,18 +507,20 @@ why AdvisorAgent still returns useful output with zero API keys configured.
 | `membership` | `api/membership.py` | Plans, purchase, entitlements, class timetable, booking. |
 | `people` | `api/people.py` | Member/trainer CRUD, fitness profiles, programmes — role-gated. |
 | `front_desk` | `api/front_desk.py` | Reception/admin pass lookup, member briefing, attendance, photo enrollment, pass rotation and operational notices. |
-| `fitbot` | `api/fitbot.py` | `/fitbot/chat` (rate-limited, works signed-out), conversation transcript retrieval. |
+| `fitbot` | `api/fitbot.py` | `/fitbot/chat` JSON fallback, `/fitbot/chat/stream` SSE delivery (both rate-limited and signed-out capable), conversation transcript retrieval. |
 | `knowledge` | `api/knowledge.py` | Admin PDF upload/list/delete. Flow: validate → temp → SHA-256 dedup → scanned-vs-text classify → direct extract or vision OCR (text/table/image summary+detail) → embed → hybrid-ready `knowledge_chunks` + `ingest_mode` on `knowledge_documents` + audit. |
-| `intelligence` | `api/intelligence.py` | Admin-only: `analyst/metrics`, `analyst/ask`, `advisor/report`, `copilot/ask`. |
+| `intelligence` | `api/intelligence.py` | Admin-only: `analyst/metrics`, `analyst/ask` (+ `/stream`), `advisor/report` (+ `/stream`), `copilot/ask` (+ `/stream`). |
 
 **Auth model:** stateless JWT bearer tokens (`create_access_token`), role read straight from the
 decoded payload for routing but **re-verified against the live DB row** wherever a permission
 actually matters (e.g. `_guard_demo_account`, admin MCP). `require_roles(*roles)` in
-`api/deps.py` is the single dependency factory behind `require_admin`/`require_staff`.
+`api/deps.py` is the single dependency factory behind `require_admin` / `require_staff` /
+`require_front_desk`.
 
 **Demo accounts:** three shared read-only logins (`*-demo@example.com`) let a visitor tour every
 dashboard. `_guard_demo_account()` blocks any `POST/PUT/PATCH/DELETE` from those accounts except
-an explicit allowlist (`/admin/analyst/ask`, `/admin/copilot/ask`, and any `/book` suffix) so the
+an explicit allowlist (`/admin/analyst/ask`, `/admin/analyst/ask/stream`, `/admin/copilot/ask`,
+`/admin/copilot/ask/stream`, and any `/book` suffix) so the
 tour can still *ask* the agents and book a class without leaving state that would surprise the
 next visitor.
 
@@ -489,17 +544,18 @@ dependency; correct trade-off for a single free-tier instance.
 
 | File | Role |
 |---|---|
-| `src/components/Layout.tsx` | Shell: sticky nav, brand mark, footer, mounts `FitBotWidget` globally. |
-| `src/components/FitBotWidget.tsx` | Floating chat widget available on every page, including signed-out. Renders in-chat login/signup forms when FitBot's `action` field asks for one — **never** a password field inline in the transcript. |
+| `src/components/Layout.tsx` | Shell: sticky nav, brand mark, footer, mounts `FitBotWidget` globally; on `/front-desk` hides marketing nav, footer and FitBot but keeps sign-out. |
+| `src/components/FitBotWidget.tsx` | Floating chat widget available on every page except the kiosk, including signed-out. Consumes SSE token chunks into one live bubble and renders in-chat login/signup forms when FitBot's final `action` asks for one — **never** a password field inline in the transcript. |
 | `src/components/ui.tsx` | Design system primitives: `Button`/`ButtonLink`, `Badge`, `Field`, `Alert`, `Spinner`, `EmptyState`, `Stat`. |
 | `src/pages/Landing.tsx` | Marketing homepage — hero, disciplines, FitBot explainer, CTA. |
 | `src/pages/Packages.tsx` | Plan cards fetched live from `/api/plans`, purchase flow. |
 | `src/pages/Login.tsx` / `Join.tsx` | Auth forms + one-click demo logins. |
-| `src/pages/MemberDashboard.tsx` / `TrainerDashboard.tsx` / `AdminDashboard.tsx` | Role-specific consoles. |
-| `src/pages/AdminInsights.tsx` | Tabs: **Data analyst**, **Advisor**, **Copilot** — the Copilot tab is the UI for the multi-agent orchestrator, with a single question textbox and clickable sample questions. |
+| `src/pages/MemberDashboard.tsx` | Membership, programmes, classes, profile, **My gym pass** QR (`qrcode.react`). |
 | `src/pages/FrontDesk.tsx` | Reception/admin kiosk: lazy-loaded ZXing camera scan, manual fallback, member briefing and confirmed attendance. |
-| `src/context/AuthContext.tsx` | JWT storage, `signIn`/`signUp`/`signOut`, entitlement caching, `homeFor(role)` router helper. |
-| `src/lib/api.ts` | Typed fetch client — one function per endpoint, typed request/response models mirroring `schemas.py`. |
+| `src/pages/TrainerDashboard.tsx` / `AdminDashboard.tsx` | Role-specific consoles; admin also creates reception, rotates passes, enrolls photos, CRUD notices, links to Insights and Front desk. |
+| `src/pages/AdminInsights.tsx` | Tabs: **Data analyst**, **Advisor**, **Copilot** — each streams answer/briefing text over SSE; tables and recommendation cards attach on `done`. JSON fallbacks if stream routes are missing. |
+| `src/context/AuthContext.tsx` | JWT storage, `signIn`/`signUp`/`signOut`, entitlement caching, `homeFor(role)` (`reception` → `/front-desk`). |
+| `src/lib/api.ts` | Typed fetch client — one function per endpoint, plus shared SSE reader used by FitBot and Insights stream helpers. |
 | `src/lib/media.ts` | Central place for hero/discipline imagery URLs. |
 
 **Design system:** dark charcoal (`ink-*` scale) base, warm off-white body text (`sand-*`), a
@@ -512,7 +568,7 @@ same visual language for quick design review outside the React build.
 
 ## 10. Testing
 
-**Backend — 202 pytest tests** across:
+**Backend — 207 pytest tests** across:
 - `test_workflow.py` — FitBot graph routing, safety gate, triage short-circuits.
 - `test_tools.py` — every FitBot tool + `execute_fitbot_tool` dispatch + the public MCP server's
   tool registration.
@@ -523,7 +579,9 @@ same visual language for quick design review outside the React build.
 - `test_llm_chain.py` — provider fallback, cooldown behaviour, tool-calling round-trip with a fake tool provider.
 - `test_attendance.py` — reception isolation, pass issue/rotation, QR lookup, photo access,
   notice permissions, expired-member warnings and four-hour check-in idempotency.
-- `test_front_desk.py`, `test_fitbot.py`, `test_knowledge_access.py` — end-to-end chat behaviour, package-based document locking.
+- `test_front_desk.py`, `test_fitbot.py`, `test_knowledge_access.py` — end-to-end chat behaviour,
+  FitBot SSE delivery, package-based document locking.
+- `test_intelligence.py` — admin Insights access, metric guardrails, and analyst/advisor/copilot SSE.
 - `test_analytics.py`, `test_intelligence.py`, `test_authorization.py`, `test_membership.py`, `test_auth.py`, `test_demo_accounts.py`, `test_rate_limit.py` — the rest of the HTTP surface.
 
 **Frontend** — Playwright E2E (`frontend/e2e/insights.spec.ts` and friends) covering the Admin
@@ -555,3 +613,9 @@ frontend.
 6. **The web app is never bypassed.** MCP tools and admin endpoints re-run the exact same
    entitlement/authorization checks as the browser-facing paths — there is no "backdoor" surface
    with looser rules.
+7. **Door check-in stays free and human-verified.** QR identifies the claim; a receptionist
+   confirms the person against a stored photo. No biometric matching, no paid vision API, and
+   camera frames never reach the server.
+8. **Prose streams; structured data waits for `done`.** FitBot and Admin Insights deliver
+   finished answers progressively over SSE after orchestration. Sources, metric tables and
+   recommendation cards ship in the final event so the UI never paints half a table.

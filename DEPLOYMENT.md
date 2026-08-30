@@ -241,6 +241,12 @@ Work through these in order. Each one exercises a different layer.
    is working.
 6. **Upload a PDF** from the admin knowledge page and ask FitBot about its contents
    (text PDFs extract directly; scanned PDFs need `GEMINI_API_KEY` for vision OCR).
+7. **Admin → Insights** — ask Copilot or the analyst a question and refresh the Advisor
+   briefing. Prose should stream in; tables and recommendation cards appear when the turn
+   finishes (same free SSE path as FitBot).
+8. **Create a reception account** (or change a user's role to reception), open `/front-desk`,
+   then from a member account open **My gym pass**, scan or search, Confirm. That proves
+   passes, briefing and attendance on Neon (camera needs HTTPS — Pages already provides it).
 
 If step 1 fails but the API health check passes, it is almost always `FRONTEND_ORIGIN`.
 
@@ -331,6 +337,15 @@ output directory is `dist` and the root directory is `frontend`.
 **FitBot apologises that it cannot reach the coaching model.** Both providers refused. Check the
 Render logs: an invalid key shows as a 401, an exhausted quota as a 429. Remember the app skips
 a provider for 15 minutes after it reports its quota is gone.
+
+**FitBot's answer appears progressively.** This uses the same Render service and existing
+Gemini/Groq key through `/api/fitbot/chat/stream`; there is no streaming vendor or extra bill.
+If a stale frontend is talking to an older backend, it automatically falls back to normal JSON
+chat until both deployments are current.
+
+**Admin Insights also streams.** Analyst, Advisor briefing and Copilot use the matching
+`/stream` routes. Tables and recommendation cards arrive on the final SSE event. An old
+backend without those routes causes the UI to fall back to the JSON endpoints.
 
 **A database error right after a quiet period.** Neon was asleep and a pooled connection was
 stale. `pool_pre_ping` handles this; if it persists, confirm `DATABASE_URL` is the pooled

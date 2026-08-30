@@ -156,15 +156,18 @@ export default function AdminInsights() {
   const [error, setError] = useState("");
   const nextId = useRef(1);
   const endRef = useRef<HTMLDivElement>(null);
+  const analystRequest = useRef<AbortController | null>(null);
 
   const [copilotTurns, setCopilotTurns] = useState<CopilotTurn[]>([]);
   const [copilotDraft, setCopilotDraft] = useState("");
   const [askingCopilot, setAskingCopilot] = useState(false);
   const copilotEndRef = useRef<HTMLDivElement>(null);
   const copilotNextId = useRef(1);
+  const copilotRequest = useRef<AbortController | null>(null);
 
   const [report, setReport] = useState<AdvisorReport | null>(null);
   const [loadingReport, setLoadingReport] = useState(false);
+  const advisorRequest = useRef<AbortController | null>(null);
 
   const [metrics, setMetrics] = useState<MetricTable[] | null>(null);
 
@@ -183,14 +186,64 @@ export default function AdminInsights() {
     copilotEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [copilotTurns, askingCopilot]);
 
+  useEffect(
+    () => () => {
+      analystRequest.current?.abort();
+      copilotRequest.current?.abort();
+      advisorRequest.current?.abort();
+    },
+    [],
+  );
+
   const loadReport = useCallback(async () => {
+    advisorRequest.current?.abort();
+    const controller = new AbortController();
+    advisorRequest.current = controller;
     setLoadingReport(true);
     setError("");
+    setReport({ summary: "", briefing: "", recommendations: [] });
+    let receivedText = false;
     try {
-      setReport(await api.advisorReport());
+      await api.streamAdvisorReport(
+        {
+          onMeta: (summary) =>
+            setReport((current) => ({
+              summary,
+              briefing: current?.briefing ?? "",
+              recommendations: current?.recommendations ?? [],
+            })),
+          onToken: (text) => {
+            receivedText = true;
+            setReport((current) => ({
+              summary: current?.summary ?? "",
+              briefing: (current?.briefing ?? "") + text,
+              recommendations: current?.recommendations ?? [],
+            }));
+          },
+          onDone: (payload) => {
+            setReport((current) => ({
+              summary: payload.summary || current?.summary || "",
+              briefing: current?.briefing ?? "",
+              recommendations: payload.recommendations,
+            }));
+          },
+        },
+        controller.signal,
+      );
     } catch (caught) {
+      if (caught instanceof DOMException && caught.name === "AbortError") return;
+      if (!receivedText) {
+        try {
+          setReport(await api.advisorReport());
+          return;
+        } catch (fallbackError) {
+          caught = fallbackError;
+        }
+      }
       setError(caught instanceof ApiError ? caught.message : "Could not build the report.");
+      if (!receivedText) setReport(null);
     } finally {
+      if (advisorRequest.current === controller) advisorRequest.current = null;
       setLoadingReport(false);
     }
   }, []);
@@ -205,20 +258,62 @@ export default function AdminInsights() {
     setDraft("");
     setAsking(true);
     setError("");
+
+    const turnId = nextId.current++;
+    setTurns((current) => [
+      ...current,
+      { id: turnId, question: trimmed, answer: "", metrics: [] },
+    ]);
+
+    const controller = new AbortController();
+    analystRequest.current = controller;
+    let receivedText = false;
     try {
-      const result = await api.askAnalyst(trimmed);
-      setTurns((current) => [
-        ...current,
+      await api.streamAnalyst(
+        trimmed,
         {
-          id: nextId.current++,
-          question: trimmed,
-          answer: result.answer,
-          metrics: result.metrics,
+          onToken: (text) => {
+            receivedText = true;
+            setAsking(false);
+            setTurns((current) =>
+              current.map((turn) =>
+                turn.id === turnId ? { ...turn, answer: turn.answer + text } : turn,
+              ),
+            );
+          },
+          onDone: (payload) => {
+            setTurns((current) =>
+              current.map((turn) =>
+                turn.id === turnId ? { ...turn, metrics: payload.metrics } : turn,
+              ),
+            );
+          },
         },
-      ]);
+        controller.signal,
+      );
     } catch (caught) {
+      if (caught instanceof DOMException && caught.name === "AbortError") return;
+      if (!receivedText) {
+        try {
+          const result = await api.askAnalyst(trimmed);
+          setTurns((current) =>
+            current.map((turn) =>
+              turn.id === turnId
+                ? { ...turn, answer: result.answer, metrics: result.metrics }
+                : turn,
+            ),
+          );
+          return;
+        } catch (fallbackError) {
+          caught = fallbackError;
+        }
+      }
       setError(caught instanceof ApiError ? caught.message : "The analyst could not answer that.");
+      if (!receivedText) {
+        setTurns((current) => current.filter((turn) => turn.id !== turnId));
+      }
     } finally {
+      if (analystRequest.current === controller) analystRequest.current = null;
       setAsking(false);
     }
   };
@@ -229,24 +324,91 @@ export default function AdminInsights() {
     setCopilotDraft("");
     setAskingCopilot(true);
     setError("");
+
+    const turnId = copilotNextId.current++;
+    setCopilotTurns((current) => [
+      ...current,
+      {
+        id: turnId,
+        question: trimmed,
+        answer: "",
+        agents_used: [],
+        metrics: [],
+        recommendations: [],
+      },
+    ]);
+
+    const controller = new AbortController();
+    copilotRequest.current = controller;
+    let receivedText = false;
     try {
-      const result: CopilotAnswer = await api.askCopilot(trimmed);
-      setCopilotTurns((current) => [
-        ...current,
+      await api.streamCopilot(
+        trimmed,
         {
-          id: copilotNextId.current++,
-          question: trimmed,
-          answer: result.answer,
-          agents_used: result.agents_used,
-          metrics: result.metrics,
-          recommendations: result.recommendations,
+          onMeta: (agents) => {
+            setCopilotTurns((current) =>
+              current.map((turn) =>
+                turn.id === turnId ? { ...turn, agents_used: agents } : turn,
+              ),
+            );
+          },
+          onToken: (text) => {
+            receivedText = true;
+            setAskingCopilot(false);
+            setCopilotTurns((current) =>
+              current.map((turn) =>
+                turn.id === turnId ? { ...turn, answer: turn.answer + text } : turn,
+              ),
+            );
+          },
+          onDone: (payload) => {
+            setCopilotTurns((current) =>
+              current.map((turn) =>
+                turn.id === turnId
+                  ? {
+                      ...turn,
+                      agents_used: payload.agents_used,
+                      metrics: payload.metrics,
+                      recommendations: payload.recommendations,
+                    }
+                  : turn,
+              ),
+            );
+          },
         },
-      ]);
+        controller.signal,
+      );
     } catch (caught) {
+      if (caught instanceof DOMException && caught.name === "AbortError") return;
+      if (!receivedText) {
+        try {
+          const result: CopilotAnswer = await api.askCopilot(trimmed);
+          setCopilotTurns((current) =>
+            current.map((turn) =>
+              turn.id === turnId
+                ? {
+                    ...turn,
+                    answer: result.answer,
+                    agents_used: result.agents_used,
+                    metrics: result.metrics,
+                    recommendations: result.recommendations,
+                  }
+                : turn,
+            ),
+          );
+          return;
+        } catch (fallbackError) {
+          caught = fallbackError;
+        }
+      }
       setError(
         caught instanceof ApiError ? caught.message : "The copilot could not answer that.",
       );
+      if (!receivedText) {
+        setCopilotTurns((current) => current.filter((turn) => turn.id !== turnId));
+      }
     } finally {
+      if (copilotRequest.current === controller) copilotRequest.current = null;
       setAskingCopilot(false);
     }
   };
@@ -533,7 +695,7 @@ export default function AdminInsights() {
         </section>
       ) : (
         <section className="mt-6">
-          {loadingReport && !report ? (
+          {loadingReport && !(report?.summary || report?.briefing) ? (
             <Spinner label="Reviewing your gym" />
           ) : report ? (
             <>
@@ -545,7 +707,9 @@ export default function AdminInsights() {
                     </span>
                     <div>
                       <p className="font-bold text-white">Owner's briefing</p>
-                      <p className="text-sm text-slate-400">{report.summary}</p>
+                      <p className="text-sm text-slate-400">
+                        {report.summary || (loadingReport ? "Preparing summary…" : "")}
+                      </p>
                     </div>
                   </div>
                   <Button variant="outline" busy={loadingReport} onClick={() => void loadReport()}>
@@ -555,7 +719,7 @@ export default function AdminInsights() {
                 </div>
 
                 <p className="mt-5 whitespace-pre-wrap text-sm leading-relaxed text-slate-200">
-                  {report.briefing}
+                  {report.briefing || (loadingReport ? "Writing briefing…" : "")}
                 </p>
               </div>
 

@@ -30,6 +30,35 @@ def test_a_visitor_can_chat_without_signing_in(client):
     assert body["action"] == "none"
 
 
+def test_a_visitor_can_stream_a_reply(client, db_session):
+    from app.db import ChatMessage
+
+    response = client.post(
+        "/api/fitbot/chat/stream", json={"message": "how do I start training?"}
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert "event: meta" in response.text
+    assert "event: token" in response.text
+    assert "Here is a simple plan." in response.text
+    assert "event: done" in response.text
+    assert [message.content for message in db_session.query(ChatMessage).all()] == [
+        "how do I start training?",
+        "Here is a simple plan.",
+    ]
+
+
+def test_a_streamed_triage_reply_keeps_its_action(client):
+    response = client.post(
+        "/api/fitbot/chat/stream", json={"message": "when does my plan expire?"}
+    )
+
+    assert response.status_code == 200
+    assert '"action": "login"' in response.text
+    assert "event: error" not in response.text
+
+
 def test_a_visitor_asking_about_their_plan_is_asked_to_sign_in(client):
     response = client.post("/api/fitbot/chat", json={"message": "when does my plan expire?"})
 

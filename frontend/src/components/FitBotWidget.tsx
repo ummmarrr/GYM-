@@ -122,6 +122,7 @@ export default function FitBotWidget() {
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const nextId = useRef(1);
+  const activeRequest = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (open) endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -139,8 +140,13 @@ export default function FitBotWidget() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const push = (bubble: Omit<Bubble, "id">) =>
-    setBubbles((current) => [...current, { ...bubble, id: nextId.current++ }]);
+  useEffect(() => () => activeRequest.current?.abort(), []);
+
+  const push = (bubble: Omit<Bubble, "id">) => {
+    const id = nextId.current++;
+    setBubbles((current) => [...current, { ...bubble, id }]);
+    return id;
+  };
 
   const send = async (text: string) => {
     const message = text.trim();
@@ -151,20 +157,74 @@ export default function FitBotWidget() {
     setThinking(true);
     setAuthMode(null);
 
+    const controller = new AbortController();
+    activeRequest.current = controller;
+    let streamedBubbleId: number | null = null;
+    let receivedText = false;
+
     try {
-      const reply = await api.chat(message, conversationId);
-      setConversationId(reply.conversation_id);
-      push({
-        from: "fitbot",
-        text: reply.answer,
-        sources: reply.sources.map((source) =>
-          source.page ? `${source.source} p.${source.page}` : source.source,
-        ),
-        handoff: reply.needs_human_handoff,
-        action: reply.action,
+      await api.streamChat(message, conversationId, {
+        onMeta: setConversationId,
+        onToken: (text) => {
+          receivedText = true;
+          setThinking(false);
+          if (streamedBubbleId === null) {
+            streamedBubbleId = push({ from: "fitbot", text });
+            return;
+          }
+          const id = streamedBubbleId;
+          setBubbles((current) =>
+            current.map((bubble) =>
+              bubble.id === id ? { ...bubble, text: bubble.text + text } : bubble,
+            ),
+          );
+        },
+        onDone: (reply) => {
+          setConversationId(reply.conversation_id);
+          if (streamedBubbleId === null) return;
+          const id = streamedBubbleId;
+          setBubbles((current) =>
+            current.map((bubble) =>
+              bubble.id === id
+                ? {
+                    ...bubble,
+                    sources: reply.sources.map((source) =>
+                      source.page ? `${source.source} p.${source.page}` : source.source,
+                    ),
+                    handoff: reply.needs_human_handoff,
+                    action: reply.action,
+                  }
+                : bubble,
+            ),
+          );
+          if (reply.action === "login" || reply.action === "signup") setAuthMode(reply.action);
+        },
       });
-      if (reply.action === "login" || reply.action === "signup") setAuthMode(reply.action);
     } catch (caught) {
+      if (caught instanceof DOMException && caught.name === "AbortError") return;
+
+      // Older deployments may not have the streaming route yet. Fall back only before
+      // receiving text, otherwise a retry could create a duplicate conversation turn.
+      if (!receivedText) {
+        try {
+          const reply = await api.chat(message, conversationId);
+          setConversationId(reply.conversation_id);
+          push({
+            from: "fitbot",
+            text: reply.answer,
+            sources: reply.sources.map((source) =>
+              source.page ? `${source.source} p.${source.page}` : source.source,
+            ),
+            handoff: reply.needs_human_handoff,
+            action: reply.action,
+          });
+          if (reply.action === "login" || reply.action === "signup") setAuthMode(reply.action);
+          return;
+        } catch (fallbackError) {
+          caught = fallbackError;
+        }
+      }
+
       push({
         from: "fitbot",
         text:
@@ -173,6 +233,7 @@ export default function FitBotWidget() {
             : "I could not reach the gym just now. Please try again in a moment.",
       });
     } finally {
+      if (activeRequest.current === controller) activeRequest.current = null;
       setThinking(false);
     }
   };
@@ -221,7 +282,10 @@ export default function FitBotWidget() {
           </div>
         </div>
         <button
-          onClick={() => setOpen(false)}
+          onClick={() => {
+            activeRequest.current?.abort();
+            setOpen(false);
+          }}
           aria-label="Close chat"
           className="rounded-lg p-1.5 text-slate-400 transition hover:bg-ink-800 hover:text-white"
         >

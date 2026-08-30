@@ -185,3 +185,50 @@ def test_the_advisor_reports_findings_with_evidence(client, admin):
         assert item["evidence"]
         assert item["action"]
         assert item["priority"] in {"high", "medium", "low"}
+
+
+def test_the_analyst_streams_an_answer(client, admin, seeded_plans, db_session):
+    from app.db import AuditEvent
+
+    response = client.post(
+        "/api/admin/analyst/ask/stream",
+        headers=auth_header(client, admin.email),
+        json={"question": "How much revenue have we made?"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert "event: token" in response.text
+    assert "event: done" in response.text
+    assert "revenue_summary" in response.text
+    assert db_session.query(AuditEvent).filter(AuditEvent.action == "analyst.queried").count() == 1
+
+
+def test_the_advisor_streams_a_briefing(client, admin):
+    response = client.get(
+        "/api/admin/advisor/report/stream",
+        headers=auth_header(client, admin.email),
+    )
+
+    assert response.status_code == 200
+    assert "event: meta" in response.text
+    assert "event: token" in response.text
+    assert "event: done" in response.text
+    assert "recommendations" in response.text
+
+
+def test_the_copilot_streams_an_answer(client, admin, seeded_plans, db_session):
+    from app.db import AuditEvent
+
+    response = client.post(
+        "/api/admin/copilot/ask/stream",
+        headers=auth_header(client, admin.email),
+        json={"question": "How much revenue have we made?"},
+    )
+
+    assert response.status_code == 200
+    assert "event: token" in response.text
+    assert "event: done" in response.text
+    assert (
+        db_session.query(AuditEvent).filter(AuditEvent.action == "copilot.queried").count() == 1
+    )
