@@ -23,7 +23,8 @@ deeper and stays focused on **how the AI/agent layer actually works**.
 | Agent tool protocol | **Model Context Protocol (MCP)**, `mcp>=1.9.0` | Two standalone MCP servers expose gym operations and the admin Copilot to any MCP client (Cursor, Claude Desktop, etc.). |
 | Rate limiting | In-process sliding window (`core/rate_limit.py`) | No Redis needed for a single free-tier instance. |
 | Frontend | **React 18 + TypeScript + Vite + Tailwind CSS v4** | Fast dev server, utility-first styling, typed API client. |
-| Testing | **pytest** (193 backend tests), **Playwright** (E2E), **Ruff** (lint) | |
+| Door check-in | **ZXing in the browser + signed QR passes** | The tablet decodes locally; only an opaque token reaches the API. No paid vision service or biometric matching. |
+| Testing | **pytest** (202 backend tests), **Playwright** (E2E), **Ruff** (lint) | |
 | Hosting (free tier) | Render (API), Cloudflare Pages (frontend), Neon (Postgres) | |
 
 ---
@@ -418,6 +419,9 @@ be run on a machine the admin controls.
 | `fitness_profiles` | Goal, experience, injuries, equipment, assigned trainer — one row per member. |
 | `programmes` | Trainer-written workout/diet plan text, tied to a member + trainer. |
 | `class_schedules` / `class_bookings` | Timetable and seat bookings, unique-constrained so a member cannot double-book the same class. |
+| `member_passes` / `member_photos` | One revocable signed QR pass and an optional desk-verification photo per member. Raw pass tokens are not stored. |
+| `attendances` | Door check-ins with member, reception/admin actor, method and timestamp; repeated scans within four hours are idempotent. |
+| `gym_notices` | Time-windowed repair, closure and information messages shown during check-in. |
 | `conversations` / `chat_messages` | FitBot transcript storage, including JSON-encoded source citations. |
 | `knowledge_documents` / `knowledge_chunks` | Ingested PDFs (`ingest_mode`) and kinded passages (`text`/`table`/`image_*`) with embeddings (`Vector(768)`, `Text` under SQLite). |
 | `audit_events` | Append-only log of sensitive admin actions (analyst queries, copilot queries, document uploads/deletes, knowledge changes). |
@@ -449,6 +453,7 @@ why AdvisorAgent still returns useful output with zero API keys configured.
 | `auth` | `api/auth.py` | Register (public, member-only), login, both rate-limited. |
 | `membership` | `api/membership.py` | Plans, purchase, entitlements, class timetable, booking. |
 | `people` | `api/people.py` | Member/trainer CRUD, fitness profiles, programmes — role-gated. |
+| `front_desk` | `api/front_desk.py` | Reception/admin pass lookup, member briefing, attendance, photo enrollment, pass rotation and operational notices. |
 | `fitbot` | `api/fitbot.py` | `/fitbot/chat` (rate-limited, works signed-out), conversation transcript retrieval. |
 | `knowledge` | `api/knowledge.py` | Admin PDF upload/list/delete. Flow: validate → temp → SHA-256 dedup → scanned-vs-text classify → direct extract or vision OCR (text/table/image summary+detail) → embed → hybrid-ready `knowledge_chunks` + `ingest_mode` on `knowledge_documents` + audit. |
 | `intelligence` | `api/intelligence.py` | Admin-only: `analyst/metrics`, `analyst/ask`, `advisor/report`, `copilot/ask`. |
@@ -492,6 +497,7 @@ dependency; correct trade-off for a single free-tier instance.
 | `src/pages/Login.tsx` / `Join.tsx` | Auth forms + one-click demo logins. |
 | `src/pages/MemberDashboard.tsx` / `TrainerDashboard.tsx` / `AdminDashboard.tsx` | Role-specific consoles. |
 | `src/pages/AdminInsights.tsx` | Tabs: **Data analyst**, **Advisor**, **Copilot** — the Copilot tab is the UI for the multi-agent orchestrator, with a single question textbox and clickable sample questions. |
+| `src/pages/FrontDesk.tsx` | Reception/admin kiosk: lazy-loaded ZXing camera scan, manual fallback, member briefing and confirmed attendance. |
 | `src/context/AuthContext.tsx` | JWT storage, `signIn`/`signUp`/`signOut`, entitlement caching, `homeFor(role)` router helper. |
 | `src/lib/api.ts` | Typed fetch client — one function per endpoint, typed request/response models mirroring `schemas.py`. |
 | `src/lib/media.ts` | Central place for hero/discipline imagery URLs. |
@@ -506,7 +512,7 @@ same visual language for quick design review outside the React build.
 
 ## 10. Testing
 
-**Backend — 193 pytest tests** across:
+**Backend — 202 pytest tests** across:
 - `test_workflow.py` — FitBot graph routing, safety gate, triage short-circuits.
 - `test_tools.py` — every FitBot tool + `execute_fitbot_tool` dispatch + the public MCP server's
   tool registration.
@@ -515,6 +521,8 @@ same visual language for quick design review outside the React build.
 - `test_orchestrator.py` — intent classification, tool delegation, admin-only API access control.
 - `test_mcp_admin.py` — login success/failure wording, token purpose/role re-checks, session expiry.
 - `test_llm_chain.py` — provider fallback, cooldown behaviour, tool-calling round-trip with a fake tool provider.
+- `test_attendance.py` — reception isolation, pass issue/rotation, QR lookup, photo access,
+  notice permissions, expired-member warnings and four-hour check-in idempotency.
 - `test_front_desk.py`, `test_fitbot.py`, `test_knowledge_access.py` — end-to-end chat behaviour, package-based document locking.
 - `test_analytics.py`, `test_intelligence.py`, `test_authorization.py`, `test_membership.py`, `test_auth.py`, `test_demo_accounts.py`, `test_rate_limit.py` — the rest of the HTTP surface.
 

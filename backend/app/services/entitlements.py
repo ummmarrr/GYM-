@@ -112,6 +112,11 @@ def entitlements_for(db: Session, user: User) -> Entitlements:
     if user.role in (Role.ADMIN, Role.TRAINER):
         return STAFF_ENTITLEMENTS
 
+    # Reception may identify and check in members, but it intentionally receives none of
+    # the trainer/admin membership bypasses.
+    if user.role is Role.RECEPTION:
+        return NO_MEMBERSHIP
+
     membership = active_membership(db, user.id)
     if membership is None:
         return NO_MEMBERSHIP

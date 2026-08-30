@@ -23,6 +23,7 @@ const AuthContext = createContext<AuthValue | null>(null);
 
 export function homeFor(role: Role): string {
   if (role === "admin") return "/admin";
+  if (role === "reception") return "/front-desk";
   if (role === "trainer") return "/trainer";
   return "/dashboard";
 }
@@ -42,7 +43,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const profile = await api.me();
       setUser(profile);
-      setEntitlements(await api.entitlements());
+      setEntitlements(profile.role === "member" ? await api.entitlements() : null);
     } catch {
       // An expired or tampered token should simply log the person out.
       tokenStore.clear();
@@ -61,7 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     tokenStore.set(token);
     const profile = await api.me();
     setUser(profile);
-    setEntitlements(await api.entitlements());
+    setEntitlements(profile.role === "member" ? await api.entitlements() : null);
     return profile;
   }, []);
 

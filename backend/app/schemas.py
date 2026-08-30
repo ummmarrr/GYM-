@@ -106,7 +106,7 @@ class MemberCreateRequest(BaseModel):
     full_name: str = Field(min_length=2, max_length=120)
     password: str = Field(min_length=8, max_length=128)
     phone: str | None = Field(default=None, max_length=20)
-    role: Literal["member", "trainer"] = "member"
+    role: Literal["member", "trainer", "reception"] = "member"
 
 
 class MemberUpdateRequest(BaseModel):
@@ -116,7 +116,7 @@ class MemberUpdateRequest(BaseModel):
 
 
 class RoleChangeRequest(BaseModel):
-    role: Literal["member", "trainer", "admin"]
+    role: Literal["member", "trainer", "admin", "reception"]
 
 
 class PersonSummary(BaseModel):
@@ -196,6 +196,86 @@ class BookingResponse(BaseModel):
     class_name: str
     starts_at: datetime
     message: str
+
+
+# --- Front desk -----------------------------------------------------------
+
+
+class PassLookupRequest(BaseModel):
+    token: str = Field(min_length=20, max_length=1000)
+
+
+class MemberPassResponse(BaseModel):
+    token: str
+    qr_payload: str
+    created_at: datetime
+
+
+class AttendanceCreateRequest(BaseModel):
+    user_id: str
+    method: Literal["qr", "manual"]
+    note: str | None = Field(default=None, max_length=500)
+
+
+class AttendanceResponse(ORMModel):
+    id: str
+    member_id: str
+    actor_id: str
+    checked_in_at: datetime
+    method: Literal["qr", "manual"]
+    note: str | None
+
+
+class UpcomingClassBrief(BaseModel):
+    id: str
+    name: str
+    discipline: str
+    instructor: str
+    starts_at: datetime
+
+
+class NoticeWriteRequest(BaseModel):
+    kind: Literal["repair", "closure", "info"]
+    title: str = Field(min_length=2, max_length=150)
+    message: str = Field(min_length=2, max_length=2000)
+    active_from: datetime
+    active_until: datetime | None = None
+
+
+class NoticeResponse(ORMModel):
+    id: str
+    kind: Literal["repair", "closure", "info"]
+    title: str
+    message: str
+    active_from: datetime
+    active_until: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class FrontDeskMember(BaseModel):
+    id: str
+    email: EmailStr
+    full_name: str
+    phone: str | None
+    active: bool
+    photo_available: bool
+
+
+class FrontDeskBriefing(BaseModel):
+    member: FrontDeskMember
+    entitlements: EntitlementsResponse
+    upcoming_classes: list[UpcomingClassBrief]
+    trainer_name: str | None
+    active_notices: list[NoticeResponse]
+    last_check_in: AttendanceResponse | None
+    warnings: list[str]
+
+
+class CheckInResponse(BaseModel):
+    attendance: AttendanceResponse
+    already_checked_in: bool
+    briefing: FrontDeskBriefing
 
 
 # --- FitBot ---------------------------------------------------------------

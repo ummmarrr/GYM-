@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { LogOut, Menu, X } from "lucide-react";
 
 import { homeFor, useAuth } from "../context/AuthContext";
@@ -19,13 +19,17 @@ function Brand({ className = "" }: { className?: string }) {
 export default function Layout() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [open, setOpen] = useState(false);
+  const isFrontDesk = location.pathname === "/front-desk";
 
-  const links = [
-    { to: "/", label: "Home", end: true },
-    { to: "/packages", label: "Packages" },
-    ...(user ? [{ to: homeFor(user.role), label: "Dashboard" }] : []),
-  ];
+  const links = isFrontDesk
+    ? []
+    : [
+        { to: "/", label: "Home", end: true },
+        { to: "/packages", label: "Packages" },
+        ...(user ? [{ to: homeFor(user.role), label: "Dashboard" }] : []),
+      ];
 
   const linkClass = ({ isActive }: { isActive: boolean }) =>
     `text-[13px] font-medium uppercase tracking-[0.14em] transition ${
@@ -143,14 +147,17 @@ export default function Layout() {
         <Outlet />
       </main>
 
-      <footer className="border-t border-white/8 bg-ink-950">
-        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-4 py-8 text-sm text-sand-300 sm:flex-row sm:px-6">
-          <Brand />
-          <p>Strength · Yoga · MMA — coached by FitBot and real trainers.</p>
-        </div>
-      </footer>
-
-      <FitBotWidget />
+      {!isFrontDesk && (
+        <>
+          <footer className="border-t border-white/8 bg-ink-950">
+            <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-4 py-8 text-sm text-sand-300 sm:flex-row sm:px-6">
+              <Brand />
+              <p>Strength · Yoga · MMA — coached by FitBot and real trainers.</p>
+            </div>
+          </footer>
+          <FitBotWidget />
+        </>
+      )}
     </div>
   );
 }

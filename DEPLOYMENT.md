@@ -275,10 +275,11 @@ moment real members exist — Neon branches give you a separate copy for develop
 **Shipping a change** is just `git push`. Render rebuilds the backend, Cloudflare rebuilds the
 frontend, both automatically.
 
-**Changing the database schema** needs a thought, because `initialize_database` only creates
-tables that are missing — it never alters an existing one. Adding a new model is free: push and
-the table appears. Adding a column to an existing table does not reach the database. While the
-data is disposable, rebuild it:
+**Changing the database schema** needs a thought, because `initialize_database` normally creates
+tables that are missing — it does not generally alter existing ones. Adding a new model is free:
+push and the table appears. The front-desk release is one explicit exception: startup safely adds
+the `RECEPTION` value to the existing Postgres role enum. Adding an arbitrary column to an
+existing table still does not reach the database. While the data is disposable, rebuild it:
 
 ```powershell
 cd backend

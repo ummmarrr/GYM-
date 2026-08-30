@@ -1,8 +1,9 @@
+import { lazy, Suspense } from "react";
 import { Route, Routes } from "react-router-dom";
 
 import Layout from "./components/Layout";
 import ProtectedRoute from "./components/ProtectedRoute";
-import { ButtonLink } from "./components/ui";
+import { ButtonLink, Spinner } from "./components/ui";
 import AdminDashboard from "./pages/AdminDashboard";
 import AdminInsights from "./pages/AdminInsights";
 import Join from "./pages/Join";
@@ -11,6 +12,8 @@ import Login from "./pages/Login";
 import MemberDashboard from "./pages/MemberDashboard";
 import Packages from "./pages/Packages";
 import TrainerDashboard from "./pages/TrainerDashboard";
+
+const FrontDesk = lazy(() => import("./pages/FrontDesk"));
 
 function NotFound() {
   return (
@@ -42,6 +45,17 @@ export default function App() {
 
         <Route element={<ProtectedRoute allow={["trainer", "admin"]} />}>
           <Route path="/trainer" element={<TrainerDashboard />} />
+        </Route>
+
+        <Route element={<ProtectedRoute allow={["reception", "admin"]} />}>
+          <Route
+            path="/front-desk"
+            element={
+              <Suspense fallback={<Spinner label="Loading front desk" />}>
+                <FrontDesk />
+              </Suspense>
+            }
+          />
         </Route>
 
         <Route element={<ProtectedRoute allow={["admin"]} />}>

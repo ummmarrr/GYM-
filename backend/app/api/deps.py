@@ -91,3 +91,4 @@ def require_roles(*roles: Role):
 
 require_admin = require_roles(Role.ADMIN)
 require_staff = require_roles(Role.ADMIN, Role.TRAINER)
+require_front_desk = require_roles(Role.ADMIN, Role.RECEPTION)

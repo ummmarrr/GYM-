@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import auth, fitbot, intelligence, knowledge, membership, people
+from app.api import auth, fitbot, front_desk, intelligence, knowledge, membership, people
 from app.core.config import get_settings
 from app.db import initialize_database
 
@@ -51,6 +51,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 app.include_router(auth.router, prefix="/api")
 app.include_router(membership.router, prefix="/api")
 app.include_router(people.router, prefix="/api")
+app.include_router(front_desk.router, prefix="/api")
 app.include_router(fitbot.router, prefix="/api")
 app.include_router(knowledge.router, prefix="/api")
 app.include_router(intelligence.router, prefix="/api")

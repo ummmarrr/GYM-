@@ -7,10 +7,11 @@ import {
   Salad,
   Target,
 } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 
 import { useAuth } from "../context/AuthContext";
 import { api, ApiError } from "../lib/api";
-import type { GymClass, Profile, Programme } from "../lib/api";
+import type { GymClass, MemberPass, Profile, Programme } from "../lib/api";
 import { classTime, longDate, quotaLabel } from "../lib/format";
 import {
   Alert,
@@ -31,6 +32,9 @@ export default function MemberDashboard() {
   const [classes, setClasses] = useState<GymClass[] | null>(null);
   const [programmes, setProgrammes] = useState<Programme[]>([]);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [memberPass, setMemberPass] = useState<MemberPass | null>(null);
+  const [passLoading, setPassLoading] = useState(true);
+  const [passError, setPassError] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -55,6 +59,20 @@ export default function MemberDashboard() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (user?.role !== "member") {
+      setPassLoading(false);
+      return;
+    }
+    api
+      .myPass()
+      .then(setMemberPass)
+      .catch((caught) =>
+        setPassError(caught instanceof ApiError ? caught.message : "Could not load your gym pass."),
+      )
+      .finally(() => setPassLoading(false));
+  }, [user?.role]);
 
   const toggleBooking = async (session: GymClass) => {
     setBusyId(session.id);
@@ -169,6 +187,44 @@ export default function MemberDashboard() {
           )}
         </div>
       </section>
+
+      {user?.role === "member" && (
+        <section className="mt-10">
+          <SectionTitle
+            title="My gym pass"
+            subtitle="Show this code at the front desk. Keep it private, just like a membership card."
+          />
+          <div className="card p-6">
+            {passLoading ? (
+              <Spinner label="Loading your gym pass" />
+            ) : passError ? (
+              <Alert kind="error" message={passError} />
+            ) : memberPass ? (
+              <div className="flex flex-col items-center gap-5 sm:flex-row sm:items-start">
+                <div className="rounded-2xl bg-white p-4">
+                  <QRCodeSVG
+                    value={memberPass.qr_payload}
+                    size={188}
+                    level="M"
+                    title={`${user.full_name}'s gym pass`}
+                  />
+                </div>
+                <div>
+                  <Badge tone="volt">Ready to scan</Badge>
+                  <h3 className="mt-3 text-lg font-bold text-white">{user.full_name}</h3>
+                  <p className="mt-1 max-w-md text-sm leading-relaxed text-slate-400">
+                    Increase your screen brightness and hold the code steady inside the scanner
+                    frame. Staff will confirm your details before checking you in.
+                  </p>
+                  <p className="mt-4 text-xs text-slate-500">
+                    Pass issued {longDate(memberPass.created_at)}
+                  </p>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </section>
+      )}
 
       <div className="mt-10 grid gap-10 lg:grid-cols-2">
         <section>

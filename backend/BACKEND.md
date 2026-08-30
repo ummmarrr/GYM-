@@ -10,13 +10,14 @@ read down.
 
 ## 1. What the backend is
 
-One FastAPI application. It does five jobs:
+One FastAPI application. It does six jobs:
 
 1. **Accounts** — sign up, sign in, and check who you are on every request.
 2. **Money and rules** — sell packages, and decide what each package lets you do.
 3. **Gym data** — classes, bookings, workout and diet programmes, trainer assignments.
 4. **FitBot** — the chat assistant that answers members and visitors.
-5. **Admin agents** — two tools that turn the database into plain-English answers and advice.
+5. **Front desk** — secure QR passes, human-confirmed attendance and operational notices.
+6. **Admin agents** — two tools that turn the database into plain-English answers and advice.
 
 It runs on SQLite on your laptop and on Postgres when hosted. The code is the same in both
 cases.
@@ -38,7 +39,7 @@ cases.
 | Passwords | Argon2 through `pwdlib` | Argon2 is the current recommended password hash. |
 | Tokens | `PyJWT` (HS256) | Small, stateless, no session table needed. |
 | Settings | `pydantic-settings` | Reads `.env`, checks types, one place for defaults. |
-| Tests | pytest | 193 tests, no network calls. |
+| Tests | pytest | 202 tests, no network calls. |
 | Linting | ruff | Fast, replaces flake8 + isort. |
 
 Python 3.11 or newer. The hosted service pins 3.14.3 in `render.yaml`.
@@ -64,6 +65,7 @@ backend/
 │   │   ├── auth.py           Register, login, /me
 │   │   ├── membership.py     Packages, purchase, classes, bookings
 │   │   ├── people.py         Admin people management, profiles, programmes
+│   │   ├── front_desk.py     QR passes, photos, attendance and notices
 │   │   ├── fitbot.py         The chat endpoint
 │   │   ├── knowledge.py      Admin PDF upload and delete
 │   │   └── intelligence.py   DataAgent, AdvisorAgent, Copilot
@@ -88,7 +90,7 @@ backend/
 ├── scripts/
 │   ├── seed.py               Create admin, --demo / --public-demo / --rich-demo datasets
 │   └── reset_db.py           Drop schema, recreate packages, optional re-seed
-└── tests/                    193 tests
+└── tests/                    202 tests
 ```
 
 The rule the layout follows: **`api/` handles HTTP, `services/` holds the thinking, `agents/`
@@ -209,10 +211,10 @@ and seeds the three default packages if the plan table is empty.
 
 ### Tables
 
-Twelve tables. IDs are UUID4 strings, timestamps are naive UTC.
+Sixteen tables. IDs are UUID4 strings, timestamps are naive UTC.
 
 **`users`** — `id`, `email` (unique, indexed), `full_name`, `phone`, `password_hash`, `role`
-(`member` / `trainer` / `admin`), `active`, `created_at`.
+(`member` / `trainer` / `reception` / `admin`), `active`, `created_at`.
 
 **`membership_plans`** — the sellable packages. `name` (unique), `tier`, `duration_days`,
 `price_paise`, `description`, `active`, plus the four columns that define what the package
@@ -239,6 +241,15 @@ actually gives:
 **`class_bookings`** — `class_id`, `member_id`, with a unique constraint
 `uq_booking_once` on the pair, so double booking is impossible at the database level rather
 than only in code.
+
+**`member_passes`** and **`member_photos`** — one revocable signed QR pass and one optional
+desk-verification photo per member. Only a pass digest is stored; the photo is shown to a human,
+not processed as a biometric.
+
+**`attendances`** — door check-ins with the member, reception/admin actor, method and UTC time.
+Repeated confirmation inside four hours returns the existing row instead of creating a duplicate.
+
+**`gym_notices`** — time-windowed repair, closure and information messages shown during check-in.
 
 **`conversations`** and **`chat_messages`** — the chat transcript. `conversations.user_id` is
 nullable because visitors chat too. `chat_messages.sources_json` stores the citations as JSON.
@@ -409,6 +420,15 @@ Self-signup cannot create an admin. Role escalation through the request body is 
 | DELETE | `/classes/{class_id}/book` | signed in | Cancel your own booking |
 | POST | `/staff/classes` | admin or trainer | Add a class to the timetable |
 | DELETE | `/staff/classes/{class_id}` | admin, or the trainer who owns it | Remove a class |
+
+### Front desk — `app/api/front_desk.py`
+
+Reception is a separate role with no trainer or admin privileges. Admin and reception can scan
+or search for a member, read the live package/class/trainer/notices briefing, enroll the display
+photo, rotate a lost pass and confirm attendance. Only admins write operational notices.
+
+The browser decodes QR locally with ZXing and sends only the opaque token. The model is never
+called; every briefing field is loaded from SQL.
 
 ### People, profiles and programmes — `app/api/people.py`
 
@@ -762,7 +782,7 @@ cd backend
 python -m pytest
 ```
 
-**193 tests, no network calls**, so the suite is fast, free and works offline.
+**202 tests, no network calls**, so the suite is fast, free and works offline.
 
 | File | Tests | What it protects |
 | --- | --- | --- |

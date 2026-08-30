@@ -4,9 +4,11 @@ from uuid import uuid4
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -40,6 +42,7 @@ class Role(str, Enum):
     MEMBER = "member"
     TRAINER = "trainer"
     ADMIN = "admin"
+    RECEPTION = "reception"
 
 
 class Discipline(str, Enum):
@@ -68,6 +71,15 @@ class User(Base):
     # column has to be named explicitly.
     profile: Mapped["FitnessProfile | None"] = relationship(
         back_populates="user", foreign_keys="FitnessProfile.user_id"
+    )
+    member_photo: Mapped["MemberPhoto | None"] = relationship(
+        back_populates="member", foreign_keys="MemberPhoto.member_id", uselist=False
+    )
+    member_passes: Mapped[list["MemberPass"]] = relationship(
+        back_populates="member", foreign_keys="MemberPass.member_id"
+    )
+    attendances: Mapped[list["Attendance"]] = relationship(
+        back_populates="member", foreign_keys="Attendance.member_id"
     )
 
 
@@ -154,6 +166,79 @@ class ClassBooking(Base):
     class_id: Mapped[str] = mapped_column(ForeignKey("class_schedules.id"), index=True)
     member_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class MemberPhoto(Base):
+    """A member's small front-desk photo, stored portably as binary data."""
+
+    __tablename__ = "member_photos"
+
+    member_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    image_bytes: Mapped[bytes] = mapped_column(LargeBinary)
+    content_type: Mapped[str] = mapped_column(String(30))
+    size_bytes: Mapped[int]
+    uploaded_by_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
+
+    member: Mapped[User] = relationship(back_populates="member_photo", foreign_keys=[member_id])
+
+
+class MemberPass(Base):
+    """A revocable pass. Only a digest is persisted; see front_desk pass signing."""
+
+    __tablename__ = "member_passes"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    member_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    # Active rows carry their member id in this unique nullable slot. Revoked rows use NULL,
+    # giving a portable one-active-pass constraint on both SQLite and Postgres.
+    active_slot: Mapped[str | None] = mapped_column(String(36), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime)
+    revoked_by_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+
+    member: Mapped[User] = relationship(back_populates="member_passes", foreign_keys=[member_id])
+
+
+class Attendance(Base):
+    __tablename__ = "attendances"
+    __table_args__ = (
+        CheckConstraint("method IN ('qr', 'manual')", name="ck_attendance_method"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    member_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    actor_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    checked_in_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, index=True)
+    method: Mapped[str] = mapped_column(String(10))
+    note: Mapped[str | None] = mapped_column(String(500))
+
+    member: Mapped[User] = relationship(back_populates="attendances", foreign_keys=[member_id])
+    actor: Mapped[User] = relationship(foreign_keys=[actor_id])
+
+
+class GymNotice(Base):
+    __tablename__ = "gym_notices"
+    __table_args__ = (
+        CheckConstraint("kind IN ('repair', 'closure', 'info')", name="ck_notice_kind"),
+        CheckConstraint(
+            "active_until IS NULL OR active_from <= active_until",
+            name="ck_notice_active_window",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    kind: Mapped[str] = mapped_column(String(10), index=True)
+    title: Mapped[str] = mapped_column(String(150))
+    message: Mapped[str] = mapped_column(Text)
+    active_from: Mapped[datetime] = mapped_column(DateTime, default=utc_now, index=True)
+    active_until: Mapped[datetime | None] = mapped_column(DateTime, index=True)
+    created_by_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
+
+    created_by: Mapped[User] = relationship(foreign_keys=[created_by_id])
 
 
 class Conversation(Base):
@@ -311,6 +396,10 @@ def initialize_database() -> None:
     Base.metadata.create_all(engine)
 
     with engine.begin() as conn:
+        if not is_sqlite:
+            # SQLAlchemy's native enum may already exist in a deployed database. create_all
+            # cannot add a value to it, so make the additive role change safely at startup.
+            conn.execute(text("ALTER TYPE role ADD VALUE IF NOT EXISTS 'RECEPTION'"))
         _ensure_column(
             conn,
             "knowledge_documents",

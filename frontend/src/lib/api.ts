@@ -1,4 +1,4 @@
-export type Role = "member" | "trainer" | "admin";
+export type Role = "member" | "trainer" | "reception" | "admin";
 
 export interface User {
   id: string;
@@ -64,6 +64,59 @@ export interface Person {
   active: boolean;
   plan_name: string | null;
   expires_on: string | null;
+}
+
+export interface MemberPass {
+  token: string;
+  qr_payload: string;
+  created_at: string;
+}
+
+export interface FrontDeskNotice {
+  id: string;
+  kind: "repair" | "closure" | "info";
+  title: string;
+  message: string;
+  active_from: string;
+  active_until: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FrontDeskMember {
+  id: string;
+  full_name: string;
+  email: string;
+  phone: string | null;
+  active: boolean;
+  photo_available: boolean;
+}
+
+export interface UpcomingClassBrief {
+  id: string;
+  name: string;
+  discipline: string;
+  instructor: string;
+  starts_at: string;
+}
+
+export interface FrontDeskBriefing {
+  member: FrontDeskMember;
+  entitlements: Entitlements;
+  upcoming_classes: UpcomingClassBrief[];
+  trainer_name: string | null;
+  active_notices: FrontDeskNotice[];
+  last_check_in: Attendance | null;
+  warnings: string[];
+}
+
+export interface Attendance {
+  id: string;
+  member_id: string;
+  actor_id: string;
+  checked_in_at: string;
+  method: "qr" | "manual";
+  note: string | null;
 }
 
 export interface Programme {
@@ -259,6 +312,19 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return body as T;
 }
 
+async function requestBlob(path: string): Promise<Blob> {
+  const token = tokenStore.get();
+  const response = await fetch(`${API_BASE}/api${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    if (response.status === 401) tokenStore.clear();
+    throw new ApiError(response.status, readDetail(body, "Could not load this image."));
+  }
+  return response.blob();
+}
+
 const get = <T,>(path: string) => request<T>(path);
 const post = <T,>(path: string, body?: unknown) =>
   request<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) });
@@ -303,7 +369,7 @@ export const api = {
     email: string;
     full_name: string;
     password: string;
-    role: "member" | "trainer";
+    role: "member" | "trainer" | "reception";
     phone?: string;
   }) => post<Person>("/admin/people", payload),
   updatePerson: (id: string, payload: { active?: boolean; full_name?: string; phone?: string }) =>
@@ -312,6 +378,53 @@ export const api = {
   assignTrainer: (memberId: string, trainerId: string) =>
     post<Profile>(`/admin/people/${memberId}/trainer/${trainerId}`),
   overview: () => get<Overview>("/admin/overview"),
+
+  myPass: () => get<MemberPass>("/me/pass"),
+  frontDeskLookup: (token: string) =>
+    post<FrontDeskBriefing>("/front-desk/lookup", { token }),
+  frontDeskCheckIn: (user_id: string, method: "qr" | "manual") =>
+    post<{
+      attendance: Attendance;
+      already_checked_in: boolean;
+      briefing: FrontDeskBriefing;
+    }>("/front-desk/check-in", { user_id, method }),
+  frontDeskSearch: (query: string) =>
+    get<FrontDeskMember[]>(`/front-desk/search?q=${encodeURIComponent(query)}`),
+  frontDeskBriefing: (userId: string) =>
+    get<FrontDeskBriefing>(`/front-desk/briefing/${userId}`),
+  frontDeskNotices: () => get<FrontDeskNotice[]>("/front-desk/notices"),
+  createNotice: (payload: {
+    kind: FrontDeskNotice["kind"];
+    title: string;
+    message: string;
+    active_from: string;
+    active_until: string | null;
+  }) => post<FrontDeskNotice>("/front-desk/notices", payload),
+  updateNotice: (
+    id: string,
+    payload: {
+      kind: FrontDeskNotice["kind"];
+      title: string;
+      message: string;
+      active_from: string;
+      active_until: string | null;
+    },
+  ) => put<FrontDeskNotice>(`/front-desk/notices/${id}`, payload),
+  deleteNotice: (id: string) => remove<{ message: string }>(`/front-desk/notices/${id}`),
+  rotateMemberPass: (id: string) =>
+    post<MemberPass>(`/staff/members/${id}/pass/rotate`),
+  uploadMemberPhoto: (id: string, file: File) => {
+    const form = new FormData();
+    form.append("photo", file);
+    return request<{ member_id: string; content_type: string; size_bytes: number }>(
+      `/staff/members/${id}/photo`,
+      {
+      method: "PUT",
+      body: form,
+      },
+    );
+  },
+  memberPhoto: (id: string) => requestBlob(`/staff/members/${id}/photo`),
 
   myMembers: () => get<Person[]>("/trainer/members"),
   memberProgrammes: (memberId: string) => get<Programme[]>(`/staff/members/${memberId}/programmes`),

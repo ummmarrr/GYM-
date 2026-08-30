@@ -10,7 +10,7 @@ it is**, and how to say that out loud without rambling.
 
 ## 1. The one-line version
 
-> Master GYM is a gym management platform with three roles and an AI assistant. What a member
+> Master GYM is a gym management platform with four roles and an AI assistant. What a member
 > can do — and what the assistant is allowed to tell them — is decided by the package they
 > bought, and enforced on the server. It runs entirely on free tiers.
 
@@ -54,7 +54,7 @@ the database and report in plain English.
 | **PyMuPDF + Gemini vision** | PDF ingest | Text extract or OCR; tables + image summary/detail |
 | **PyJWT** | Tokens | Stateless auth, no session table |
 | **pwdlib + Argon2** | Password hashing | The current recommended algorithm |
-| **pytest** | Tests | 193 of them, offline |
+| **pytest** | Tests | 202 of them, offline |
 | **ruff** | Linting and imports | Fast, replaces several tools |
 | **Uvicorn** | ASGI server | The standard FastAPI pairing |
 
@@ -316,23 +316,23 @@ Have these ready. Specifics make a project sound real.
 
 | Fact | Number |
 | --- | --- |
-| Backend tests, all offline | **193** |
+| Backend tests, all offline | **202** |
 | Playwright browser tests | **46** |
-| Total automated tests | **232** |
-| Database tables | **12** |
+| Total automated tests | **248** |
+| Database tables | **16** |
 | API endpoints | **35** (including the health check) |
 | LangGraph agents | **4** (FitBot, DataAgent, AdvisorAgent, Copilot) |
 | MCP servers | **2** (gym tools + admin Copilot) |
 | Vetted admin metrics | **11** |
 | Recommendation rules | **12** |
-| Roles | **3**, enforced server-side |
+| Roles | **4**, enforced server-side |
 | Agentic RAG attempts | **2** (1 retrieve + optional rewrite) |
 | Embedding dimensions | **768** |
 | Chunk size and overlap | **1200 / 180 characters** |
-| Runtime frontend dependencies | **4** |
+| Runtime frontend dependencies | **6** |
 | Monthly hosting cost | **₹0** |
 
-Two of these are the good ones. **"232 tests, none of which need the internet for the
+Two of these are the good ones. **"248 tests, none of which need the internet for the
 backend suite"** answers "how do you know it works?". **"Agentic RAG with package filtering
 inside SQL"** is a measured retrieval design with a before and after story.
 
@@ -345,7 +345,7 @@ Pick four. Each one names a technology, an action and a result.
 > **Master GYM — full-stack gym platform with an AI assistant**
 > FastAPI · PostgreSQL + pgvector · LangGraph · Gemini/Groq · React · TypeScript · Tailwind
 >
-> - Built a role-based platform (member, trainer, admin) where feature access is derived from
+> - Built a role-based platform (member, trainer, reception, admin) where feature access is derived from
 >   one server-side entitlement engine, so package tiers govern class booking, personalised
 >   programmes, and which documents the AI assistant may quote — from a single source of truth.
 > - Designed a LangGraph FitBot with a deterministic safety gate and triage, then a
@@ -358,7 +358,7 @@ Pick four. Each one names a technology, an action and a result.
 >   (gym tools and admin-only Copilot with login → short-lived session token).
 > - Admin analytics use a registry of vetted SQL queries instead of model-generated SQL,
 >   eliminating both hallucinated figures and the risk of an LLM reading password hashes.
-> - Wrote 239 automated tests — 193 pytest with the model stubbed, 46 Playwright on real
+> - Wrote 248 automated tests — 202 pytest with the model stubbed, 46 Playwright on real
 >   Chromium that also fail on any console error or 5xx response.
 > - Deployed on free tiers end to end (Render, Cloudflare Pages, Neon) with a `render.yaml`
 >   blueprint, migrating off disk-backed SQLite and ChromaDB to survive an ephemeral filesystem.
@@ -369,7 +369,7 @@ Pick four. Each one names a technology, an action and a result.
 
 ### The 60-second version
 
-> "Master GYM is a gym platform with three roles and an AI assistant called FitBot. The part I
+> "Master GYM is a gym platform with four roles and an AI assistant called FitBot. The part I
 > find most interesting is that the assistant is inside the permission system rather than
 > beside it. What a member paid for decides which classes they can book **and** which of the
 > gym's documents the AI is allowed to quote — both read the same database column.
@@ -496,7 +496,7 @@ claim in the token deliberately not trusted, retrieval filtered in SQL before ra
 generation by a model, credentials kept out of the chat transcript, and read-only demo accounts
 so public passwords cannot damage a public deployment.
 
-**Testing** — 232 tests across two suites, stubbing external providers so the backend suite is
+**Testing** — 248 tests across two suites, stubbing external providers so the backend suite is
 fast and offline, testing permission boundaries and not just happy paths, and browser tests
 that fail on console errors and 5xx responses rather than only on wrong clicks.
 

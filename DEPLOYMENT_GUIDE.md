@@ -42,7 +42,7 @@ flowchart TB
     end
 
     subgraph NE[Neon - free Postgres]
-        D[(12 tables<br/>+ pgvector embeddings)]
+        D[(16 tables<br/>+ pgvector embeddings)]
     end
 
     subgraph EX[External APIs]
@@ -289,7 +289,11 @@ a resume project, public is the point, since a recruiter should be able to read 
    Pooled matters: Neon suspends idle databases, and the pooler handles reconnection much better.
 3. Do nothing else. You do not need to create tables or enable the `vector` extension by hand.
    On first boot the app's lifespan hook runs `initialize_database()`, which enables `vector`,
-   creates all twelve tables, builds the HNSW index and seeds the three packages.
+   creates all sixteen tables, builds the HNSW index and seeds the three packages.
+
+The front-desk release also adds the `RECEPTION` value to the existing Postgres `role` enum at
+startup before reception accounts are created. New attendance/pass/photo/notice tables are
+created by the same `create_all` step; no photo is stored on Render's ephemeral disk.
 
 Region choice is not cosmetic. Every request makes several round trips to the database, so an
 API in Singapore with a database in Virginia adds latency to every single call.

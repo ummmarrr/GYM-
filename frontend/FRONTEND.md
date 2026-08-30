@@ -17,7 +17,8 @@ It has to serve four different kinds of visitor from the same bundle:
 1. A stranger reading the marketing page.
 2. A member checking their plan, programmes and classes.
 3. A trainer writing programmes and managing the timetable.
-4. An admin managing people, PDFs and the Insights agents (Copilot, analyst, advisor).
+4. A receptionist running the permanent QR check-in tablet.
+5. An admin managing people, PDFs and the Insights agents (Copilot, analyst, advisor).
 
 ---
 
@@ -31,15 +32,16 @@ It has to serve four different kinds of visitor from the same bundle:
 | Routing | React Router 6.28 | Nested routes let one guard protect a whole group of pages |
 | Styling | Tailwind CSS v4 | No separate config file, and no UI library to fight |
 | Icons | lucide-react | Tree-shakeable SVG icons, one consistent set |
+| Door scanning | `@zxing/browser` | Decodes the member QR locally; camera frames never leave the tablet |
+| Pass display | `qrcode.react` | Renders the signed pass as SVG on the member dashboard |
 | State | React context + hooks | The only shared state is "who is signed in". A store would be overkill |
 | Browser tests | Playwright | 46 tests driving real Chromium |
 | Linting | `tsc --noEmit` | Type errors are the errors that matter here |
 
 Node 20 or newer. No ESLint or Prettier config — `npm run lint` is a type check.
 
-Four runtime dependencies in total (`react`, `react-dom`, `react-router-dom`,
-`lucide-react`). That is a deliberate choice: fewer packages means a smaller bundle and
-nothing to upgrade urgently.
+Six runtime dependencies in total. The QR scanner is lazy-loaded only on `/front-desk`, so its
+larger bundle does not slow the public site.
 
 ---
 
@@ -78,6 +80,7 @@ frontend/
 │       ├── Join.tsx          Sign up
 │       ├── MemberDashboard.tsx
 │       ├── TrainerDashboard.tsx
+│       ├── FrontDesk.tsx       QR kiosk for reception/admin
 │       ├── AdminDashboard.tsx
 │       └── AdminInsights.tsx
 └── e2e/
@@ -127,6 +130,7 @@ page including the 404.
 | `/join` | `Join` | none | everyone |
 | `/dashboard` | `MemberDashboard` | `ProtectedRoute` | member, trainer, admin |
 | `/trainer` | `TrainerDashboard` | `ProtectedRoute` | trainer, admin |
+| `/front-desk` | `FrontDesk` | `ProtectedRoute` | reception, admin |
 | `/admin` | `AdminDashboard` | `ProtectedRoute` | admin |
 | `/admin/insights` | `AdminInsights` | `ProtectedRoute` | admin |
 | `*` | `NotFound` | none | everyone |
@@ -443,6 +447,14 @@ The roster only contains members assigned to this trainer, because that is what
 
 One detail: `starts_at` is sent as `new Date(startsAt).toISOString().slice(0, 19)`, dropping
 the timezone marker to match the naive UTC datetimes the backend stores.
+
+### `FrontDesk.tsx` — `/front-desk`
+
+A tablet-friendly check-in kiosk for reception and admin. ZXing reads a secure member QR
+directly from the camera, then the API returns the member photo, package/expiry, upcoming
+bookings, trainer, active repair notices and last check-in. The receptionist confirms the
+human match before attendance is written. Manual member search is the fallback for a forgotten
+card. FitBot and the marketing footer are hidden on this route.
 
 ### `AdminDashboard.tsx` — `/admin`
 

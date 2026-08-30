@@ -3,8 +3,13 @@
 A gym management web app with **FitBot**, an AI coach that acts as the receptionist, gym
 trainer, yoga coach or MMA coach depending on what you ask it. Built entirely on free tools.
 
-Three roles, each with its own dashboard: **Admin**, **Trainer** and **Member**. What a member
-can actually do is decided by the package they bought, and that is enforced on the server.
+Four roles, each with a purpose-built surface: **Admin**, **Reception**, **Trainer** and
+**Member**. What a member can actually do is decided by the package they bought, and that is
+enforced on the server.
+
+Reception runs the tablet-friendly **Front desk** at `/front-desk`: it scans a secure member QR
+in the browser, shows the member photo and live package/class/trainer/notices briefing, then
+records attendance only after a human confirms the match.
 
 ## What's inside
 
@@ -48,7 +53,7 @@ GYM-/
 │   ├── scripts/
 │   │   ├── seed.py       # --demo / --public-demo / --rich-demo
 │   │   └── reset_db.py   # drop schema + optional re-seed
-│   └── tests/            # 193 tests, no network calls
+│   └── tests/            # 202 tests, no network calls
 └── frontend/
     ├── e2e/              # 46 Playwright browser tests
     ├── design-preview.html
@@ -56,7 +61,7 @@ GYM-/
         ├── components/
         ├── context/
         ├── lib/          # api client, media URLs
-        └── pages/        # landing, packages, auth, dashboards, Insights (3 tabs)
+        └── pages/        # landing, auth, dashboards, Front desk, Insights
 ```
 
 ## Setting up on a new machine
@@ -150,6 +155,10 @@ needs, and what to do when the schema changes.
 **Member** — sees their package and days remaining, their trainer-written workout and diet
 programmes, books and cancels classes within their quota, and edits the fitness profile that
 FitBot reads before every answer.
+
+**Reception** — lands on the dedicated check-in kiosk. It scans member passes, verifies the
+member against the enrolled photo, records attendance, and sees only the package/class/trainer
+context needed at the door. Reception cannot open trainer or admin tools.
 
 **Trainer** — sees only the members assigned to them, writes workout and diet programmes for
 those members, and manages the class timetable.
@@ -288,11 +297,12 @@ cd backend
 python -m pytest
 ```
 
-193 tests covering agent routing and safety logic, FitBot tools, PDF classify / OCR split /
+202 tests covering agent routing and safety logic, FitBot tools, PDF classify / OCR split /
 hybrid RRF, agentic RAG, the Copilot orchestrator, MCP admin auth, authentication, role
-boundaries, package entitlements, the document access ladder, conversation privacy, metric
-correctness, provider fallback and front-desk answers. The model is stubbed, so the suite is
-fast, free and offline.
+boundaries, secure/revocable member passes, attendance cooldowns, photo access, operational
+notices, package entitlements, the document access ladder, conversation privacy, metric
+correctness, provider fallback and FitBot front-desk answers. The model is stubbed, so the
+suite is fast, free and offline.
 
 ```bash
 cd frontend
